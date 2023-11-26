@@ -1,19 +1,19 @@
-import os
 from tkinter import ttk, messagebox
 import tkinter as tk
 
 import pyautogui
 import keyboard
-import json
 
 from itertools import permutations, chain
 import threading
+import json
 import time
 
 import platform
+import os
 
 __project__ = 'JetClicker'
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 
 __author__ = 'Hung'
 __runtime__ = time.strftime('%T')
@@ -26,22 +26,32 @@ class Utilities:
     def add_default_hotkeys(return_: bool = False):
         if return_:
             return ['+'.join(x for x in i) for i in list(chain.from_iterable(
-                permutations(hk.split('+'), r=len(hk.split('+'))) for hk in ['ctrl+alt+s', 'ctrl+shift+alt+r']))]
+                permutations(hk.split('+'), r=len(hk.split('+'))) for hk in
+                ['ctrl+alt+s', 'ctrl+shift+alt+r', 'ctrl+alt+b']))]
         keyboard.add_hotkey('ctrl+alt+s', root.settings)
         keyboard.add_hotkey('ctrl+shift+alt+r', Utilities.reset_all)
+        keyboard.add_hotkey('ctrl+alt+b', root.deiconify)
 
         Utilities.writelog('Default hotkeys initialized', ('', '\n', True))
 
     @staticmethod
-    def writelog(content: str, built_content: list | tuple | None = None, logType: str = 'INFO', path: str = 'logs.txt',
-                 mode: str = 'a'):
+    def writelog(content: str, built_content: list | tuple | None = None, logType: str = 'INFO',
+                 path: str = fr'data\logs\logs.txt',
+                 mode: str = 'a',
+                 create_separated_file: list = (True, fr'data\logs\logs_{time.strftime("%m-%d-%Y")}.txt')):
+        dailylog_content = content
         if built_content:
             if content[2]:
-                content = f'[{logType}] {time.strftime("[%D - %T]")}: ' + content
-                content += '.' if len(content) > 3 and content[3] else ''
+                content = f'[{logType}] {time.strftime("[%D - %T]")}: ' + content + '.'
+                dailylog_content = f'[{logType}] {time.strftime("[%T]")}: ' + dailylog_content + '.'
             content = built_content[0] + content
             content += built_content[1]
+            dailylog_content = built_content[0] + dailylog_content
+            dailylog_content += built_content[1]
 
+        if create_separated_file:
+            with open(create_separated_file[1], mode) as daylogwrite:
+                daylogwrite.write(dailylog_content)
         with open(path, mode) as logwrite:
             logwrite.write(content)
 
@@ -59,7 +69,7 @@ class Utilities:
         STORAGE.Setting.transparency = 0.5
 
 
-with open('data.json', 'r') as read_data:
+with open(r'data\data.json', 'r') as read_data:
     try:
         DATA = json.load(read_data)
     except json.decoder.JSONDecodeError as error:
@@ -123,7 +133,7 @@ def save_data(data: list | dict = None):
             }
         ]
 
-    with open('data.json', 'w') as write_data:
+    with open(r'data\data.json', 'w') as write_data:
         json.dump(data, write_data, indent=2)
 
     Utilities.writelog('Data saved into data.json', ('', '\n', True))
@@ -142,7 +152,7 @@ class Application(tk.Tk):
         self.mainFrame.grid(row=5, column=3, padx=15, pady=15)
 
         # # MENU FRAME
-        self.menuImage = tk.PhotoImage(file='menu.png').subsample(20, 20)
+        self.menuImage = tk.PhotoImage(file=r'assets\textures\menu.png').subsample(20, 20)
         self.menuButton = tk.Button(self, image=self.menuImage, bd=0, bg=self.mainFrame.cget('bg'), cursor='hand2',
                                     command=self.menuActions)
         self.menuButton.grid(row=0, column=0, columnspan=100, rowspan=100, sticky='nw', padx=7, pady=3)
@@ -162,32 +172,36 @@ class Application(tk.Tk):
         tk.Frame(self.allMenuFrame, bg='black', height=2).grid(row=4, column=3, sticky='ew')
 
         # # # SETTING BUTTON
-        self.settingImage = tk.PhotoImage(file='setting.png').subsample(22, 22)
+        self.settingImage = tk.PhotoImage(file=r'assets\textures\setting.png').subsample(22, 22)
         self.settingButton = tk.Button(self.allMenuFrame, bg=self.menuColor, activebackground=self.menuColor, bd=0,
                                        image=self.settingImage, cursor='hand2', command=self.settings)
         self.settingButton.grid(row=5, column=3, ipady=7, sticky='nsew')
 
         # # # INFO BUTTON
-        self.infoImage = tk.PhotoImage(file='info.png').subsample(19, 19)
+        self.infoImage = tk.PhotoImage(file=r'assets\textures\info.png').subsample(19, 19)
         self.infoButton = tk.Button(self.allMenuFrame, bg=self.menuColor, activebackground=self.menuColor, bd=0,
                                     image=self.infoImage, cursor='hand2',
                                     command=lambda: [Utilities.writelog('Opened Credits & Info page', ('', '\n', True)),
                                                      messagebox.showinfo('Credits & Information',
                                                                          f'''CREDITS & INFORMATION of {__project__.upper()}
 
+--- APPLICATION ---
+Author: {__author__}
 Application name: {__project__}
 Application version: {__version__}
 Application full-name: {__project__} {__version__}
 
-Author: {__author__}
+--- INFORMATION ---
 Operating system: {platform.system()}
 Full OS name: {platform.platform()}
 OS Username: {os.getlogin()}
 Python version: {platform.python_version()}
 
+--- STATISTIC ---
 Current clicks: {STORAGE.General.current_click}
 Total clicks: {STORAGE.General.total_clicks}
 
+--- MISCELLANEOUS ---
 Open time: {__runtime__}
 Open date: {__rundate__}
 Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog('Closed Credits & Info page',
@@ -603,7 +617,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             if on_quit:
                 if not messagebox.askyesno('Closing Settings',
                                            'Are you sure that you want to close settings? Everything won\'t be saved.',
-                                           default='no', parent=settingWindow):
+                                           default='no', parent=settingWindow, icon='warning'):
                     return
 
             if saving:
@@ -661,7 +675,6 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
         choosePositionFrame = ttk.Frame(mainCustomPositionFrame)
         choosePositionFrame.grid(row=3, column=3, pady=(5, 0))
-        # choosePositionFrame.grid_columnconfigure()
 
         choosePositionFrame_radiobutton = ttk.Radiobutton(choosePositionFrame, value='manual', variable=positionType,
                                                           command=lambda: [xCustomPositionEntry.focus(),
@@ -779,7 +792,11 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                 transparent_layer.update()
 
         def submit_position():
-            STORAGE.FIXED_POSITIONS = positions
+            if not pyautogui.onScreen(*map(int, positions)):
+                messagebox.showwarning('Warning', 'Your chosen position is outside the screen.',
+                                       parent=askPositionDialog)
+                return
+            STORAGE.FIXED_POSITIONS = tuple(map(int, positions))
             self.customPositionRadiobutton.configure(text=f'Custom ({",".join(map(str, positions))})')
             askPositionDialog.destroy()
 
@@ -900,6 +917,12 @@ def background_tasks():
 
 
 def on_window_exit():
+    if keyboard.is_pressed('shift'):
+        root.withdraw()
+        return
+    if not keyboard.is_pressed('ctrl') and STORAGE.Setting.isAutoPopup:
+        if not messagebox.askyesno(f'Closing {__project__}', f'Are you sure to close {__project__} {__version__}?'):
+            return
     save_data()
     root.destroy()
     STORAGE.RUNNING = False
