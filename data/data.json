@@ -1,23 +1,71 @@
 [
-  {
-    "category": "storage",
-    "clicking": false,
-    "fixed-position": [
-      0,
-      0
-    ]
-  },
-  {
-    "category": "general",
-    "total-clicks": 0,
-    "latest-clicks": 0
-  },
-  {
-    "category": "settings",
-    "trigger-hotkey": "ctrl+c",
-    "is.topmost": false,
-    "is.failsafe": true,
-    "is.auto-popup": true,
-    "transparency": 0.5
-  }
+    {
+        "category": "storage",
+        "fixed-position": [
+            0,
+            0
+        ],
+        "locate-screen": [
+            false,
+            ""
+        ],
+        "position-type": "manual",
+        "plugins": []
+    },
+    {
+        "category": "general",
+        "total-clicks": 0,
+        "total-scrolls": 0,
+        "latest-clicks": 0,
+        "latest-scrolls": 0
+    },
+    {
+        "category": "settings",
+        "is.randomIntergerList": [
+            false,
+            0,
+            0
+        ],
+        "trigger-hotkey": "ctrl+q",
+        "is.topmost": false,
+        "is.failsafe": true,
+        "is.auto-popup": true,
+        "wheelsize": 100,
+        "confidence": 0.8,
+        "transparency": 0.5,
+        "clickArea": [
+            [
+                false,
+                0,
+                0,
+                0,
+                0
+            ],
+            [
+                0,
+                0,
+                0,
+                0
+            ]
+        ]
+    },
+    {
+        "category": "extensions",
+        "version": "1.0.0",
+        "extensions": {
+            "mouse-recorder": {
+                "version": "1.0",
+                "record-trigger-hotkey": "f5",
+                "playback-trigger-hotkey": "f6",
+                "playback-speed": 1,
+                "is.record-clicks": true,
+                "is.record-movements": true,
+                "is.record-wheelrolls": true,
+                "is.insert-events": false
+            },
+            "cps-counter": {
+                "version": "1.0"
+            }
+        }
+    }
 ]
