@@ -1,38 +1,62 @@
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import tkinter as tk
 
-import pyautogui
-import keyboard
-
 from itertools import permutations, chain
+from PIL import Image
+from tktooltip import ToolTip
+import pyautogui
 import threading
-import json
+import keyboard
+import random
+import mouse
 import time
+import json
 
 import platform
 import os
 
 __project__ = 'JetClicker'
-__version__ = '0.0.2'
+__version__ = '0.3.1'
 
 __author__ = 'Hung'
 __runtime__ = time.strftime('%T')
 __rundate__ = time.strftime('%A %d-%b-%Y (%d/%m/%Y)')
 __startFlag__ = time.perf_counter()
 
+if not platform.system().lower().startswith('win'):
+    if not messagebox.askyesno('Important Warning',
+                               f'Many features here might be broken because your current OS is not supported, or outdated.\n\nInformation:\n - Operating System: {platform.system()}\n - Release: {platform.release()}\n - Version: {platform.version()}\n\nConfiguration required:\n - Operating System: Windows\n - Version/Release: 10 or above\n\nWould you like to continue using {__project__}?',
+                               icon='warning', default='no'):
+        quit()
+
 
 class Utilities:
     @staticmethod
     def add_default_hotkeys(return_: bool = False):
+        keyboard.add_hotkey('ctrl+shift+alt+r', Utilities.reset_all)
+        keyboard.add_hotkey('ctrl+shift+r', Utilities.Dialogs.Terminal.dialogs)
+
         if return_:
             return ['+'.join(x for x in i) for i in list(chain.from_iterable(
                 permutations(hk.split('+'), r=len(hk.split('+'))) for hk in
                 ['ctrl+alt+s', 'ctrl+shift+alt+r', 'ctrl+alt+b']))]
-        keyboard.add_hotkey('ctrl+alt+s', root.settings)
-        keyboard.add_hotkey('ctrl+shift+alt+r', Utilities.reset_all)
-        keyboard.add_hotkey('ctrl+alt+b', root.deiconify)
+
+        def back_to_screen():
+            if not STORAGE.BACKGROUND:
+                return
+            STORAGE.BACKGROUND = False
+            root.deiconify()
+
+        if not STORAGE.Extension.ON:
+            keyboard.add_hotkey('ctrl+alt+s', root.settings)
+            keyboard.add_hotkey('ctrl+alt+b', back_to_screen)
 
         Utilities.writelog('Default hotkeys initialized', ('', '\n', True))
+
+    @staticmethod
+    def add_trigger_hotkey():
+        keyboard.add_hotkey(STORAGE.Setting.trigger_hotkey,
+                            lambda: root.stopClicking() if STORAGE.CLICKING else root.startClicking())
 
     @staticmethod
     def writelog(content: str, built_content: list | tuple | None = None, logType: str = 'INFO',
@@ -56,17 +80,313 @@ class Utilities:
             logwrite.write(content)
 
     @staticmethod
-    def reset_all():
+    def child_geometry(window, master, do=True):
+        result = '+' + master.geometry().split('+', maxsplit=1)[1]
+        if do:
+            window.geometry(result)
+        return result
+
+    @staticmethod
+    def reset_all(message: bool = True):
+        if message and not messagebox.askyesno(f'Reset {__project__} {__version__}',
+                                               f'Are you sure that you want to reset all data of {__project__}?',
+                                               icon='warning'):
+            return
+
         STORAGE.FIXED_POSITIONS = (0, 0)
+        STORAGE.LOCATE_SCREEN = (False, '')
 
         STORAGE.General.current_click = 0
+        STORAGE.General.current_scroll = 0
         STORAGE.General.total_clicks = 0
+        STORAGE.General.total_scroll = 0
 
-        STORAGE.Setting.trigger_hotkey = 'ctrl+c'
+        STORAGE.Setting.trigger_hotkey = 'ctrl+q'
+        STORAGE.Setting.clickArea = [False, 0, 0, 0, 0]
+        STORAGE.Garbage.tk_clickArea = [0, 0, 0, 0]
+        STORAGE.Setting.isRandomIntervalList = [False, 0, 0]
         STORAGE.Setting.isTopmost = False
         STORAGE.Setting.isFailsafe = True
         STORAGE.Setting.isAutoPopup = True
+        STORAGE.Setting.wheelSize = 100
+        STORAGE.Setting.confidence = 0.8
         STORAGE.Setting.transparency = 0.5
+
+        STORAGE.Extension.MouseRecorder.recordTriggerHotkey = 'f5'
+        STORAGE.Extension.MouseRecorder.playbackTriggerHotkey = 'f6'
+        STORAGE.Extension.MouseRecorder.playbackSpeed = 1
+        STORAGE.Extension.MouseRecorder.isClicksRecorded = True
+        STORAGE.Extension.MouseRecorder.isMovementsRecorded = True
+        STORAGE.Extension.MouseRecorder.isWheelrollsRecorded = True
+        STORAGE.Extension.MouseRecorder.isInsertedEvents = False
+
+        root.title(f'{__project__} {__version__}')
+        keyboard.unregister_all_hotkeys()
+        Utilities.add_default_hotkeys()
+        Utilities.add_trigger_hotkey()
+
+        if message and messagebox.askyesno(f'Restart {__project__} {__version__}',
+                                           f'Resetted all data. {__project__} needs to be refreshed to see the changes.\nWould you like to refresh now?'):
+            Utilities.start(restart=True)
+
+    @staticmethod
+    def start(restart: bool = False):
+        global root, backgroundThread
+        if restart:
+            for _widget in root.winfo_children():
+                if isinstance(_widget, tk.Toplevel):
+                    _widget.destroy()
+                    STORAGE.Setting.ON = False
+                    STORAGE.Extension.ON = False
+                    STORAGE.Extension.MouseRecorder.ON = False
+                    STORAGE.Extension.CpsCounter.ON = False
+                else:
+                    _widget.grid_forget()
+            root.draw()
+            keyboard.unregister_all_hotkeys()
+            Utilities.add_trigger_hotkey()
+            Utilities.add_default_hotkeys()
+            root.geometry(STORAGE.Garbage.root_geometry.split('+')[0])
+            return
+
+        root = Application()
+
+        Utilities.add_trigger_hotkey()
+        Utilities.add_default_hotkeys()
+
+        for file in STORAGE.PLUGINS:
+            if file not in [f for f in os.listdir(r'data\plugins') if f.endswith('.txt')]:
+                STORAGE.PLUGINS.remove(file)
+        if [f not in STORAGE.PLUGINS for f in os.listdir(r'data\plugins') if f.endswith('.txt')]:
+            Utilities.Dialogs.Custom.displayNewpluginsDialog(r'data\plugins', STORAGE.PLUGINS, root)
+            root.deiconify()
+        for filename in [f for f in os.listdir(r'data\plugins') if f.endswith('.txt')]:
+            with open('data\\plugins\\' + filename, 'r') as filerun:
+                try:
+                    exec(filerun.read())
+                except Exception as plugin_error:
+                    messagebox.showerror(f'Plugin: {filename}', f'[{type(plugin_error).__name__}]: {plugin_error}')
+
+        backgroundThread = threading.Thread(target=background_tasks)
+        backgroundThread.start()
+
+        STORAGE.RUNNING = True
+
+        root.protocol('WM_DELETE_WINDOW', on_window_exit)
+        root.mainloop()
+
+    @staticmethod
+    def insert_disabledtextwidget(widget, content, index='end'):
+        widget.configure(state='normal')
+        widget.insert(index, content)
+        widget.configure(state='disabled')
+
+    class Function:
+        @staticmethod
+        def seconds_to_formatted(seconds, with_hour: bool = False):
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            remaining_seconds = seconds % 60
+            milliseconds = int((remaining_seconds % 1) * 1000)
+            remaining_seconds += milliseconds // 1000
+            milliseconds %= 1000
+
+            if with_hour:
+                result = "{:02}:{:02}:{:02}.{:03}".format(hours, minutes, int(remaining_seconds), milliseconds)
+            else:
+                result = "{:02}:{:02}.{:03}".format(minutes, int(remaining_seconds), milliseconds)
+
+            return result
+
+        @staticmethod
+        def is_position_inside_box(position, x1, y1, x2, y2):
+            x, y = position
+
+            return x1 <= x <= x2 and y1 <= y <= y2
+
+        @staticmethod
+        def isfloat(value):
+            try:
+                float(value)
+                return True
+            except ValueError:
+                return False
+
+        @staticmethod
+        def show_files(folder_path, extension=''):
+            return [f for f in os.listdir(folder_path) if f.endswith(extension)]
+
+    class Dialogs:
+        @staticmethod
+        class Custom:
+            @staticmethod
+            def displayFileDialog(filename, folder, master):
+                try:
+                    with open(folder + '\\' + filename, 'r') as _file:
+                        content = _file.read()
+                except FileNotFoundError:
+                    messagebox.showerror('FileNotFound',
+                                         f'Something went wrong while open {filename}\nMake sure that the file still exists.')
+                    return False
+
+                file_reader_toplevel = tk.Toplevel(master)
+                file_reader_toplevel.title(f'{filename} - FileReader')
+                file_reader_toplevel.grab_set()
+
+                text_widget = tk.Text(file_reader_toplevel, wrap='word', state='disabled')
+                text_widget.grid(row=3, column=3, sticky='nsew')
+
+                Utilities.insert_disabledtextwidget(text_widget, content)
+                _scrollbar = tk.Scrollbar(file_reader_toplevel, orient='vertical', command=text_widget.yview)
+                _scrollbar.grid(row=3, column=4, sticky='ns')
+                text_widget.configure(yscrollcommand=_scrollbar.set)
+
+                return True
+
+            @staticmethod
+            def displayNewpluginsDialog(directory_path, storage, master, block=True):
+                filelist = [f for f in os.listdir(directory_path) if f.endswith('.txt') and f not in storage]
+                if not filelist:
+                    return
+                master.withdraw()
+                newpluginwarningWindow = tk.Toplevel(master)
+                newpluginwarningWindow.title('Warning')
+                newpluginwarningWindow.grid_columnconfigure(3, weight=1)
+
+                tk.Label(newpluginwarningWindow, text='WARNING', foreground='red', font=('Calibri', 20, 'bold')).grid(
+                    row=3, column=3)
+                tk.Label(newpluginwarningWindow, text=f'We\'ve detected {len(filelist)} new plugins').grid(row=4,
+                                                                                                           column=3,
+                                                                                                           padx=50)
+                newpluginListbox = tk.Listbox(newpluginwarningWindow, height=7)
+                newpluginListbox.grid(row=5, column=3, sticky='ew', pady=15)
+
+                warningActionFrame = tk.Frame(newpluginwarningWindow)
+                warningActionFrame.grid(row=7, column=3)
+
+                # noinspection PyUnresolvedReferences
+                def closeapp():
+                    root.destroy()
+                    print('Closed.')
+                    os._exit(0)
+
+                def proceed():
+                    newpluginwarningWindow.destroy()
+                    storage.extend(filelist)
+
+                ttk.Button(warningActionFrame, text='Continue', command=proceed, width=10).grid(row=3, column=3)
+                ttk.Button(warningActionFrame, text='Exit', command=closeapp, width=10).grid(row=3, column=5)
+                ttk.Button(warningActionFrame, text='Open plugin folder',
+                           command=lambda: os.startfile(r'data\plugins')).grid(row=5, column=3, columnspan=3,
+                                                                               pady=(0, 15), sticky='ew')
+
+                for filename in filelist:
+                    newpluginListbox.insert('end', filename)
+
+                def on_select(_):
+                    selected_index = newpluginListbox.curselection()
+                    if selected_index:
+                        selected_file = newpluginListbox.get(selected_index)
+                        Utilities.Dialogs.Custom.displayFileDialog(selected_file, r'data\plugins',
+                                                                   newpluginwarningWindow)
+
+                newpluginListbox.bind('<Double-1>', on_select)
+                newpluginwarningWindow.protocol('WM_DELETE_WINDOW',
+                                                lambda: newpluginwarningWindow.destroy() if messagebox.askyesno(
+                                                    'Warning',
+                                                    'Make sure all your plugins are safe to run. Closing this window will execute the plugins.\n\nDo you want to proceed?',
+                                                    icon='warning', parent=newpluginwarningWindow) else None)
+                if block:
+                    newpluginwarningWindow.wait_window()
+
+        @staticmethod
+        class Terminal:
+            @staticmethod
+            def dialogs(master=None):
+                if master is None:
+                    master = root
+                    root.menuFrame.grid_forget()
+                STORAGE.Garbage.isTerminalOn = True
+
+                terminalWindow = tk.Toplevel(master)
+                terminalWindow.title(f'Terminal: {__project__} {__version__} [BETA]')
+                terminalWindow.resizable(False, False)
+                terminalWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
+                mainCommandFrame = tk.Frame(terminalWindow)
+                mainCommandFrame.grid(row=3, column=3, padx=15, pady=5)
+
+                def sendcommand(_=None):
+                    Utilities.Dialogs.Terminal.processCommand(commandEntry.get().rstrip(), outputTextbox,
+                                                              commandEntry)
+
+                tk.Label(mainCommandFrame, text='Send command:').grid(row=3, column=3, columnspan=3)
+                commandEntry = ttk.Combobox(mainCommandFrame)
+                commandEntry.grid(row=5, column=3)
+                ttk.Button(mainCommandFrame, text='Send',
+                           command=sendcommand, width=5).grid(row=5,
+                                                              column=5,
+                                                              padx=3)
+                commandEntry.bind('<Return>', sendcommand)
+
+                commandOutputFrame = tk.Frame(terminalWindow)
+                commandOutputFrame.grid(row=5, column=3)
+                outputScrollbar = ttk.Scrollbar(commandOutputFrame)
+                outputScrollbar.grid(row=3, column=5, sticky='ns')
+                outputTextbox = tk.Text(commandOutputFrame, width=75, height=25, yscrollcommand=outputScrollbar.set)
+                outputTextbox.grid(row=3, column=3)
+                outputScrollbar.configure(command=outputTextbox.yview)
+
+                def closeTerminal():
+                    terminalWindow.destroy()
+                    STORAGE.Garbage.isTerminalOn = False
+
+                terminalWindow.protocol('WM_DELETE_WINDOW', closeTerminal)
+                commandEntry.focus()
+
+            @staticmethod
+            def processCommand(command: str, textbox: tk.Text, focus_entry=None):
+                return_text = '\n'
+                try:
+                    if not command:
+                        return
+                    elif command == 'exit':
+                        textbox.master.master.destroy()
+                        return
+                    elif command.startswith('python '):
+                        exec(command.replace('python ', '', 1))
+                    elif command.startswith('python.eval'):
+                        return_text = f'{eval(command.replace("python.eval ", "", 1))}\n' + return_text
+                    elif command.startswith(f'{__project__.lower()} '):
+                        command2 = command.replace(f'{__project__.lower()} ', '', 1).strip()
+                        if not command2:
+                            return_text = f'v{__version__} - {time.strftime("%T")} - [{__author__}]\n' + return_text
+                        elif command2 in ['restart']:
+                            Utilities.start(restart=True)
+                            return_text = 'Updated all available frames.\n' + return_text
+                        elif command2 in ['reset']:
+                            return_text = 'Resetted all data.\n' + return_text
+                            Utilities.reset_all(message=False)
+                        elif command2 in ['add_default_hotkeys', 'add_default_hotkey']:
+                            Utilities.add_default_hotkeys()
+                        elif command2 in ['default_hotkeys_combinations']:
+                            return_text = f'{Utilities.add_default_hotkeys(True)}\n' + return_text
+                        elif command2 in ['add_trigger_hotkey', 'add_trigger_hotkeys']:
+                            Utilities.add_trigger_hotkey()
+                        elif command2 in ['trigger_hotkey', 'trigger_hotkeys']:
+                            return_text = f'{STORAGE.Setting.trigger_hotkey}\n' + return_text
+                        else:
+                            return_text = f'[{__project__.lower()}] Unknown command: {command2}\n' + return_text
+                    else:
+                        return_text = f'Unknown command: {command}\n' + return_text
+                except Exception as command_error:
+                    return_text = f'[{type(command_error).__name__}]: {command_error}\n' + return_text
+                textbox.after(10,
+                              lambda: [Utilities.insert_disabledtextwidget(textbox, f'>>> {command}\n' + return_text),
+                                       textbox.yview('end')])
+                if focus_entry is not None:
+                    focus_entry['values'] = list({i: None for i in [command] + list(focus_entry['values'])})[:100]
+                    focus_entry.set('')
+                    focus_entry.focus()
 
 
 with open(r'data\data.json', 'r') as read_data:
@@ -84,16 +404,47 @@ Utilities.writelog(f'Opened {__project__} {__version__}', ('{\n', '\n', True))
 
 
 class Storage:
-    RUNNING = True
+    RUNNING = False
+    BACKGROUND = False
     CLICKING = False
     FIXED_POSITIONS = tuple(map(int, DATA[0]['fixed-position']))
+    LOCATE_SCREEN = DATA[0]['locate-screen']
+    PLUGINS = DATA[0]['plugins']
 
     class General:
         total_clicks = DATA[1]['total-clicks']
+        total_scroll = 0
         current_click = 0
+        current_scroll = 0
+
+    class Garbage:
+        old_positionVar = ['mouse']
+        old_mouseButtonOption = 'Left'
+        old_scrollDirection = 'Up'
+        tk_clickArea = DATA[2]['clickArea'][1]
+        isMasterFocus = False
+        isTerminalOn = False
+        root_geometry: str = None
+        clickButton = 'Left'
+        clickType = 'Single'
+
+        @staticmethod
+        def trace_old_positionVar(value):
+            STORAGE.Garbage.old_positionVar.append(value)
+            STORAGE.Garbage.old_positionVar = STORAGE.Garbage.old_positionVar[-2:]
+
+        @staticmethod
+        def trace_old_mouseButtonOption_scrollDirection(value):
+            if value.strip().lower() in ['up', 'down']:
+                STORAGE.Garbage.old_scrollDirection = value
+            else:
+                STORAGE.Garbage.old_mouseButtonOption = value
 
     class Setting:
-        ON = False
+        ON: bool | tk.Toplevel = False
+
+        isRandomIntervalList = DATA[2]['is.randomIntergerList']
+        clickArea = DATA[2]['clickArea'][0]
 
         trigger_hotkey = DATA[2]['trigger-hotkey']
 
@@ -101,7 +452,30 @@ class Storage:
         isFailsafe = DATA[2]['is.failsafe']
         isAutoPopup = DATA[2]['is.auto-popup']
 
+        wheelSize = DATA[2]['wheelsize']
+        confidence = DATA[2]['confidence']
         transparency = DATA[2]['transparency']
+
+    class Extension:
+        ON: bool | tk.Toplevel = False
+        version = '1.0.0'
+
+        class MouseRecorder:
+            ON: bool | tk.Toplevel = False
+            version = '1.0'
+
+            recordTriggerHotkey = 'f5'
+            playbackTriggerHotkey = 'f6'
+            playbackSpeed = DATA[3]['extensions']['mouse-recorder']['playback-speed']
+
+            isClicksRecorded = DATA[3]['extensions']['mouse-recorder']['is.record-clicks']
+            isMovementsRecorded = DATA[3]['extensions']['mouse-recorder']['is.record-movements']
+            isWheelrollsRecorded = DATA[3]['extensions']['mouse-recorder']['is.record-wheelrolls']
+            isInsertedEvents = DATA[3]['extensions']['mouse-recorder']['is.insert-events']
+
+        class CpsCounter:
+            ON: bool | tk.Toplevel = False
+            version = '1.0'
 
 
 STORAGE = Storage
@@ -115,26 +489,53 @@ def save_data(data: list | dict = None):
         data = [
             {
                 'category': 'storage',
-                'clicking': STORAGE.CLICKING,
                 'fixed-position': STORAGE.FIXED_POSITIONS,
+                'locate-screen': STORAGE.LOCATE_SCREEN,
+                'position-type': root.positionType.get(),
+                'plugins': STORAGE.PLUGINS
             },
             {
                 'category': 'general',
                 'total-clicks': STORAGE.General.total_clicks,
-                'latest-clicks': STORAGE.General.current_click
+                'total-scrolls': STORAGE.General.total_scroll,
+                'latest-clicks': STORAGE.General.current_click,
+                'latest-scrolls': STORAGE.General.current_scroll
             },
             {
                 'category': 'settings',
+                'is.randomIntergerList': STORAGE.Setting.isRandomIntervalList,
                 'trigger-hotkey': STORAGE.Setting.trigger_hotkey,
                 'is.topmost': STORAGE.Setting.isTopmost,
                 'is.failsafe': STORAGE.Setting.isFailsafe,
                 'is.auto-popup': STORAGE.Setting.isAutoPopup,
-                'transparency': STORAGE.Setting.transparency
+                'wheelsize': STORAGE.Setting.wheelSize,
+                'confidence': STORAGE.Setting.confidence,
+                'transparency': STORAGE.Setting.transparency,
+                'clickArea': [STORAGE.Setting.clickArea, STORAGE.Garbage.tk_clickArea]
+            },
+            {
+                'category': 'extensions',
+                'version': STORAGE.Extension.version,
+                'extensions': {
+                    'mouse-recorder': {
+                        'version': STORAGE.Extension.MouseRecorder.version,
+                        'record-trigger-hotkey': STORAGE.Extension.MouseRecorder.recordTriggerHotkey,
+                        'playback-trigger-hotkey': STORAGE.Extension.MouseRecorder.playbackTriggerHotkey,
+                        'playback-speed': STORAGE.Extension.MouseRecorder.playbackSpeed,
+                        'is.record-clicks': STORAGE.Extension.MouseRecorder.isClicksRecorded,
+                        'is.record-movements': STORAGE.Extension.MouseRecorder.isMovementsRecorded,
+                        'is.record-wheelrolls': STORAGE.Extension.MouseRecorder.isWheelrollsRecorded,
+                        'is.insert-events': STORAGE.Extension.MouseRecorder.isInsertedEvents
+                    },
+                    'cps-counter': {
+                        'version': STORAGE.Extension.CpsCounter.version
+                    }
+                }
             }
         ]
 
     with open(r'data\data.json', 'w') as write_data:
-        json.dump(data, write_data, indent=2)
+        json.dump(data, write_data, indent=4)
 
     Utilities.writelog('Data saved into data.json', ('', '\n', True))
 
@@ -143,9 +544,58 @@ def save_data(data: list | dict = None):
 class Application(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.spinTimeLabel = None
+        self._click_optionFrame = None
+        self._click_repeatFrame = None
+        self._cursor_positionFrame = None
+        self._intervalFrame = None
+        self.allMenuFrame = None
+        self.click_optionFrame = None
+        self.click_repeatFrame = None
+        self.clickTypeOptionCombobox = None
+        self.cursor_positionFrame = None
+        self.customPositionRadiobutton = None
+        self.extensionsButton = None
+        self.infoButton = None
+        self.infoImage = None
+        self.intervalFrame = None
+        self.intervalHourCombobox = None
+        self.intervalMillisecondCombobox = None
+        self.intervalMinuteCombobox = None
+        self.intervals = [0, 0, 0, 100]
+        self.intervalSecondCombobox = None
+        self.intervalWidgets = None
+        self.limitedRepeatRadiobutton = None
+        self.limitedRepeatSpinbox = None
+        self.mainFrame = None
+        self.menuButton = None
+        self.menuColor = None
+        self.menuFrame = None
+        self.menuImage = None
+        self.mouseButtonOptionCombobox = None
+        self.mouseImage = None
+        self.mousePositionRadiobutton = None
+        self.positionType = tk.StringVar(value=(lambda x: x if x == 'locate' else 'manual')(DATA[0]['position-type']))
+        self.positionVar = tk.StringVar(value='mouse')
+        self.randomPositionVar = tk.IntVar(value=0)
+        self.repeatVar = None
+        self.repeatVar = tk.StringVar(value='unlimited')
+        self.runFrame = None
+        self.settingButton = None
+        self.settingImage = None
+        self.showInterval = None
+        self.spinTime = 1
+        self.startClickButton = None
+        self.stopClickButton = None
+        self.terminalButton = None
+        self.terminalImage = None
+        self.unlimitedRepeatRadiobutton = None
+        self.draw()
 
+    def draw(self):
         self.title(f'{__project__} {__version__}')
         self.resizable(False, False)
+        self.attributes('-topmost', STORAGE.Setting.isTopmost)
 
         # MAIN FRAME
         self.mainFrame = tk.Frame(self)
@@ -153,33 +603,46 @@ class Application(tk.Tk):
 
         # # MENU FRAME
         self.menuImage = tk.PhotoImage(file=r'assets\textures\menu.png').subsample(20, 20)
-        self.menuButton = tk.Button(self, image=self.menuImage, bd=0, bg=self.mainFrame.cget('bg'), cursor='hand2',
+        self.menuButton = tk.Button(self, image=self.menuImage, border=0, background=self.mainFrame.cget('background'),
+                                    cursor='hand2',
                                     command=self.menuActions)
         self.menuButton.grid(row=0, column=0, columnspan=100, rowspan=100, sticky='nw', padx=7, pady=3)
 
-        self.menuFrame = tk.Frame(bg='gray80', width=100)
-        self.menuColor = self.menuFrame.cget('bg')
+        self.menuFrame = tk.Frame(background='gray80', width=100)
+        self.menuColor = self.menuFrame.cget('background')
 
         # # # ALL MENU FRAME
         self.allMenuFrame = tk.Frame(self.menuFrame)
         self.allMenuFrame.grid(row=3, column=3, padx=5, pady=5)
 
-        tk.Button(self.allMenuFrame, image=self.menuImage, bd=0, bg=self.menuColor, activebackground=self.menuColor,
+        tk.Button(self.allMenuFrame, image=self.menuImage, border=0, background=self.menuColor,
+                  activebackground=self.menuColor,
                   cursor='hand2',
                   command=self.menuActions).grid(row=1, column=3, sticky='ew')
 
-        tk.Label(self.allMenuFrame, text='', bg=self.menuColor, font=('Calibri', 1)).grid(row=3, column=3, sticky='ew')
-        tk.Frame(self.allMenuFrame, bg='black', height=2).grid(row=4, column=3, sticky='ew')
+        tk.Label(self.allMenuFrame, text='', background=self.menuColor, font=('Calibri', 1)).grid(row=3, column=3,
+                                                                                                  sticky='ew')
+        tk.Frame(self.allMenuFrame, background='black', height=2).grid(row=4, column=3, sticky='ew')
+        tk.Frame(self.allMenuFrame, background='black', height=2).grid(row=6, column=3, sticky='ew')
+
+        # # # MOUSE RECORD BUTTON
+        self.mouseImage = tk.PhotoImage(file=r'assets\textures\mouse.png').subsample(22, 22)
+        self.extensionsButton = tk.Button(self.allMenuFrame, background=self.menuColor, activebackground=self.menuColor,
+                                          border=0,
+                                          image=self.mouseImage, cursor='hand2', command=self.extensions)
+        self.extensionsButton.grid(row=5, column=3, ipady=7, sticky='nsew')
 
         # # # SETTING BUTTON
         self.settingImage = tk.PhotoImage(file=r'assets\textures\setting.png').subsample(22, 22)
-        self.settingButton = tk.Button(self.allMenuFrame, bg=self.menuColor, activebackground=self.menuColor, bd=0,
+        self.settingButton = tk.Button(self.allMenuFrame, background=self.menuColor, activebackground=self.menuColor,
+                                       border=0,
                                        image=self.settingImage, cursor='hand2', command=self.settings)
-        self.settingButton.grid(row=5, column=3, ipady=7, sticky='nsew')
+        self.settingButton.grid(row=7, column=3, ipady=7, sticky='nsew')
 
         # # # INFO BUTTON
         self.infoImage = tk.PhotoImage(file=r'assets\textures\info.png').subsample(19, 19)
-        self.infoButton = tk.Button(self.allMenuFrame, bg=self.menuColor, activebackground=self.menuColor, bd=0,
+        self.infoButton = tk.Button(self.allMenuFrame, background=self.menuColor, activebackground=self.menuColor,
+                                    border=0,
                                     image=self.infoImage, cursor='hand2',
                                     command=lambda: [Utilities.writelog('Opened Credits & Info page', ('', '\n', True)),
                                                      messagebox.showinfo('Credits & Information',
@@ -199,7 +662,9 @@ Python version: {platform.python_version()}
 
 --- STATISTIC ---
 Current clicks: {STORAGE.General.current_click}
+Current scrolls: {STORAGE.General.current_scroll}
 Total clicks: {STORAGE.General.total_clicks}
+Total scrolls: {STORAGE.General.total_scroll}
 
 --- MISCELLANEOUS ---
 Open time: {__runtime__}
@@ -207,13 +672,14 @@ Open date: {__rundate__}
 Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog('Closed Credits & Info page',
                                                                                  ('', '\n', True))])
         self.infoButton.grid(row=21, column=3, ipady=7, sticky='sew')
+        self.terminalImage = tk.PhotoImage(file=r'assets\textures\terminal.png').subsample(23, 23)
 
         # # INTERVAL FRAME
         self.intervalFrame = ttk.LabelFrame(self.mainFrame, text='Click interval', labelanchor='n')
         self.intervalFrame.grid(row=3, column=3, ipadx=15, ipady=5, sticky='new', columnspan=3)
         self.intervalFrame.grid_columnconfigure(3, weight=1)
 
-        self._intervalFrame = ttk.Frame(self.intervalFrame)
+        self._intervalFrame = tk.Frame(self.intervalFrame)
         self._intervalFrame.grid(row=3, column=3, pady=(5, 0))
         self._intervalFrame.grid_columnconfigure(tuple(range(3, 11)), weight=1)
 
@@ -222,7 +688,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                                  validate='key',
                                                  validatecommand=(self.register(self.bindHourChosen), '%P'))
         self.intervalHourCombobox.grid(row=3, column=3)
-        self.intervalHourCombobox.set('00')
+        self.intervalHourCombobox.set(str(self.intervals[0]).zfill(2))
         ttk.Label(self._intervalFrame, text='hours').grid(row=3, column=4, sticky='w', padx=(1, 6))
 
         self.intervalMinuteCombobox = ttk.Combobox(self._intervalFrame, width=3,
@@ -230,7 +696,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                                    validate='key',
                                                    validatecommand=(self.register(self.bindMinuteChosen), '%P'))
         self.intervalMinuteCombobox.grid(row=3, column=5)
-        self.intervalMinuteCombobox.current(0)
+        self.intervalMinuteCombobox.set(str(self.intervals[1]).zfill(2))
         ttk.Label(self._intervalFrame, text='mins').grid(row=3, column=6, sticky='w', padx=(1, 6))
 
         self.intervalSecondCombobox = ttk.Combobox(self._intervalFrame, width=3,
@@ -238,7 +704,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                                    validate='key',
                                                    validatecommand=(self.register(self.bindSecondChosen), '%P'))
         self.intervalSecondCombobox.grid(row=3, column=7)
-        self.intervalSecondCombobox.current(0)
+        self.intervalSecondCombobox.set(str(self.intervals[2]).zfill(2))
         ttk.Label(self._intervalFrame, text='secs').grid(row=3, column=8, sticky='w', padx=(1, 6))
 
         self.intervalMillisecondCombobox = ttk.Combobox(self._intervalFrame, width=3,
@@ -247,10 +713,11 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                                         validatecommand=(
                                                             self.register(self.bindMillisecondChosen), '%P'))
         self.intervalMillisecondCombobox.grid(row=3, column=9)
-        self.intervalMillisecondCombobox.current(100)
+        self.intervalMillisecondCombobox.set(str(self.intervals[3]).zfill(3))
         ttk.Label(self._intervalFrame, text='millisecs').grid(row=3, column=10, sticky='w', padx=(1, 6))
 
-        self.showInterval = ttk.Label(self._intervalFrame, text='Interval: 00:00:00.100')
+        self.showInterval = ttk.Label(self._intervalFrame,
+                                      text=f'Interval: {":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}')
         self.showInterval.grid(row=5, column=3, columnspan=8, pady=(5, 0))
 
         self.intervalWidgets = [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox,
@@ -269,32 +736,58 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         self.click_optionFrame.grid(row=5, column=3, ipadx=15, ipady=5, pady=(5, 0), sticky='nw', padx=(0, 5))
         self.click_optionFrame.grid_columnconfigure(3, weight=1)
 
-        self._click_optionFrame = ttk.Frame(self.click_optionFrame)
+        self._click_optionFrame = tk.Frame(self.click_optionFrame)
         self._click_optionFrame.grid(row=3, column=3, pady=(5, 0))
         self._click_optionFrame.grid_columnconfigure((3, 5), weight=1)
 
-        ttk.Label(self._click_optionFrame, text='Mouse button:').grid(row=3, column=3, padx=(0, 5), pady=(0, 5),
-                                                                      sticky='w')
+        mousebuttonLabel = ttk.Label(self._click_optionFrame,
+                                     text='Direction:' if self.clickTypeOptionCombobox and self.clickTypeOptionCombobox.get() == 'Scroll' else 'Mouse button:',
+                                     width=12)
+        mousebuttonLabel.grid(row=3, column=3, padx=(0, 5), pady=(0, 5),
+                              sticky='w')
         self.mouseButtonOptionCombobox = ttk.Combobox(self._click_optionFrame, width=7,
-                                                      values=['Left', 'Right', 'Middle'], state='readonly')
+                                                      values=['Up',
+                                                              'Down'] if self.clickTypeOptionCombobox and self.clickTypeOptionCombobox.get() == 'Scroll' else [
+                                                          'Left', 'Right', 'Middle'], state='readonly')
         self.mouseButtonOptionCombobox.grid(row=3, column=4, pady=(0, 5))
-        self.mouseButtonOptionCombobox.current(0)
+        self.mouseButtonOptionCombobox.set(STORAGE.Garbage.clickButton)
 
         ttk.Label(self._click_optionFrame, text='Click type:').grid(row=5, column=3, padx=(0, 5), sticky='w')
         self.clickTypeOptionCombobox = ttk.Combobox(self._click_optionFrame, width=7,
-                                                    values=['Single', 'Double', 'Triple'], state='readonly')
+                                                    values=['Single', 'Double', 'Triple', 'Scroll'], state='readonly')
         self.clickTypeOptionCombobox.grid(row=5, column=4)
-        self.clickTypeOptionCombobox.current(0)
+        self.clickTypeOptionCombobox.set(STORAGE.Garbage.clickType)
+
+        def update_clickOptions(_=None):
+            STORAGE.Garbage.clickButton = self.mouseButtonOptionCombobox.get()
+            STORAGE.Garbage.clickType = self.clickTypeOptionCombobox.get()
+
+        def scroll_option_set(_=None):
+            if self.clickTypeOptionCombobox.get().strip() == 'Scroll':
+                self.mouseButtonOptionCombobox.configure(values=['Up', 'Down'])
+                self.mouseButtonOptionCombobox.set(STORAGE.Garbage.old_scrollDirection)
+                self.customPositionRadiobutton.configure(state='disabled')
+                mousebuttonLabel.configure(text=f'Direction:')
+            else:
+                self.mouseButtonOptionCombobox.configure(values=['Left', 'Right', 'Middle'])
+                self.mouseButtonOptionCombobox.set(STORAGE.Garbage.old_mouseButtonOption)
+                self.customPositionRadiobutton.configure(state='normal')
+                mousebuttonLabel.configure(text='Mouse button:')
+
+        self.mouseButtonOptionCombobox.bind('<<ComboboxSelected>>',
+                                            lambda _: [STORAGE.Garbage.trace_old_mouseButtonOption_scrollDirection(
+                                                self.mouseButtonOptionCombobox.get().strip()), update_clickOptions()])
+        self.clickTypeOptionCombobox.bind('<<ComboboxSelected>>',
+                                          lambda _: [scroll_option_set(), update_clickOptions()])
 
         # # CLICK REPEAT
         self.click_repeatFrame = ttk.LabelFrame(self.mainFrame, text='Click repeat', labelanchor='nw')
         self.click_repeatFrame.grid(row=5, column=5, ipadx=15, ipady=5, pady=5, sticky='ne', padx=(5, 0))
         self.click_repeatFrame.grid_columnconfigure(3, weight=1)
 
-        self._click_repeatFrame = ttk.Frame(self.click_repeatFrame)
+        self._click_repeatFrame = tk.Frame(self.click_repeatFrame)
         self._click_repeatFrame.grid(row=3, column=3, pady=(5, 0))
         self._click_repeatFrame.grid_columnconfigure((3, 5), weight=1)
-        self.repeatVar = tk.StringVar(value='unlimited')
 
         # ttk.Label(self._click_repeatFrame, text='Repeat').grid(row=3, column=3, padx=(0, 5), pady=(0, 5), sticky='w')
         self.limitedRepeatRadiobutton = ttk.Radiobutton(self._click_repeatFrame, text='Repeat', value='limited',
@@ -302,12 +795,20 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                                         command=lambda: self.limitedRepeatSpinbox.focus())
         self.limitedRepeatRadiobutton.grid(row=3, column=3, padx=(0, 5), pady=(0, 5), sticky='w')
 
+        def changeSpinTime(_=None):
+            if self.limitedRepeatSpinbox.get().isdigit():
+                self.spinTime = int(self.limitedRepeatSpinbox.get())
+            self.spinTimeLabel.configure(text=f'time{"s" if self.spinTime > 1 else ""}')
+
         self.limitedRepeatSpinbox = ttk.Spinbox(self._click_repeatFrame, from_=1, to=99999, width=5, wrap=True,
                                                 validate='key', validatecommand=(
-                self.register(lambda item: True if not len(item) or (item.isdigit() and int(item)) else False), '%P'))
+                self.register(lambda item: True if not len(item) or (item.isdigit() and int(item)) else False), '%P'),
+                                                command=changeSpinTime)
         self.limitedRepeatSpinbox.grid(row=3, column=4, padx=5, pady=(0, 5), sticky='w')
-        self.limitedRepeatSpinbox.set('1')
-        ttk.Label(self._click_repeatFrame, text='times').grid(row=3, column=5, pady=(0, 5), sticky='w')
+        self.limitedRepeatSpinbox.set(self.spinTime)
+        self.limitedRepeatSpinbox.bind('<KeyRelease>', changeSpinTime)
+        self.spinTimeLabel = ttk.Label(self._click_repeatFrame, text=f'time{"s" if self.spinTime > 1 else ""}', width=5)
+        self.spinTimeLabel.grid(row=3, column=5, pady=(0, 5), sticky='w')
 
         # ttk.Label(self._click_repeatFrame, text='Repeat until stopped').grid(row=5, column=3, padx=(0, 5), sticky='w')
         self.unlimitedRepeatRadiobutton = ttk.Radiobutton(self._click_repeatFrame, text='Until stopped',
@@ -319,25 +820,27 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         self.cursor_positionFrame.grid(row=7, column=3, ipadx=15, ipady=5, sticky='new', columnspan=3)
         self.cursor_positionFrame.grid_columnconfigure(3, weight=1)
 
-        self._cursor_positionFrame = ttk.Frame(self.cursor_positionFrame)
+        self._cursor_positionFrame = tk.Frame(self.cursor_positionFrame)
         self._cursor_positionFrame.grid(row=3, column=3, pady=(5, 0))
         self._cursor_positionFrame.grid_columnconfigure(tuple(range(3, 11)), weight=1)
-        self.positionVar = tk.StringVar(value='mouse')
 
         # ttk.Label(self._click_positionFrame, text='Repeat').grid(row=3, column=3, padx=(0, 5), pady=(0, 5), sticky='w')
         self.mousePositionRadiobutton = ttk.Radiobutton(self._cursor_positionFrame, text='Current (0, 0)',
-                                                        value='mouse', variable=self.positionVar)
+                                                        value='mouse', variable=self.positionVar, command=lambda: [
+                STORAGE.Garbage.trace_old_positionVar(self.positionVar.get()), self.bindChosenAll])
         self.mousePositionRadiobutton.grid(row=3, column=3, padx=(0, 7), pady=(0, 5), sticky='w')
 
         # ttk.Label(self._click_positionFrame, text='Repeat until stopped').grid(row=5, column=3, padx=(0, 5), sticky='w')
         self.customPositionRadiobutton = ttk.Radiobutton(self._cursor_positionFrame,
-                                                         text='Custom ({0}, {1})'.format(*STORAGE.FIXED_POSITIONS),
+                                                         text='Custom (Locate)' if self.positionType.get() == 'locate' else 'Custom ({0}, {1})'.format(
+                                                             *STORAGE.FIXED_POSITIONS),
                                                          value='custom',
-                                                         variable=self.positionVar, command=self.customPositionDialog)
+                                                         variable=self.positionVar, command=lambda: [
+                STORAGE.Garbage.trace_old_positionVar(self.positionVar.get()), self.customPositionDialog()])
         self.customPositionRadiobutton.grid(row=3, column=5, padx=(7, 0), sticky='e')
 
         # # RUN
-        self.runFrame = ttk.Frame(self.mainFrame)
+        self.runFrame = tk.Frame(self.mainFrame)
         self.runFrame.grid(row=9, column=3, columnspan=3, sticky='nsew', ipadx=15, ipady=5, pady=(15, 0))
         self.runFrame.grid_columnconfigure((3, 5), weight=1)
         self.runFrame.grid_rowconfigure((3, 5), weight=1)
@@ -348,20 +851,25 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         self.stopClickButton = ttk.Button(self.runFrame, text='Stop', state='disabled', command=self.stopClicking)
         self.stopClickButton.grid(row=3, column=5, sticky='nsew')
 
+        if STORAGE.Setting.isRandomIntervalList[0]:
+            for _widget in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox,
+                            self.intervalMillisecondCombobox]:
+                _widget.configure(state='disabled')
+            self.showInterval.configure(
+                text=f'Interval/r: {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[1])} ~ {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[2])}')
         Utilities.writelog('GUI frame initialized', ('', '\n', True))
 
     def startClicking(self):
         hour, minute, second, millisecond = map(int, self.intervals)
         sleepTime = hour * 60 * 60 + minute * 60 + second + millisecond / 1000
-        if not sleepTime and STORAGE.Setting.isAutoPopup:
-            if not messagebox.askyesno('Warning',
-                                       f'If you set the interval to 0s, {__project__} will run as fast as it can!\nSo, would you still like to start clicking?\n\n(This is an extra pop-up, you can disable it in the Settings)',
-                                       icon='warning'):
-                return
+        if not sleepTime:
+            messagebox.showwarning('Invalid interval', 'Make sure the click interval is bigger than 0s.')
+            return
 
         self.startClickButton.configure(state='disabled')
         self.stopClickButton.configure(state='normal')
-        self.settingButton.configure(state='disabled')
+        self.extensionsButton.configure(state='disabled', cursor='')
+        self.settingButton.configure(state='disabled', cursor='')
         self.title(f'Clicking - {__project__} {__version__}')
 
         for widget in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox,
@@ -373,35 +881,90 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         Utilities.writelog(
             f'CLICKING STARTED\n\tinterval: {":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}\n\tbutton: {self.mouseButtonOptionCombobox.get().lower()}\n\ttype: {self.clickTypeOptionCombobox.get().lower()}\n\trepeat: {self.repeatVar.get()}\n\tposition: {self.positionVar.get()}{f" ({STORAGE.FIXED_POSITIONS[0]}, {STORAGE.FIXED_POSITIONS[1]})" if self.positionVar.get() == "custom" else ""}',
             ('', '\n', True))
+        print('started')
 
         def click():
-            if self.positionVar.get() == 'custom':
+            if STORAGE.Setting.clickArea[0]:
+                if Utilities.Function.is_position_inside_box(pyautogui.position(),
+                                                             *STORAGE.Setting.clickArea[
+                                                              1:]):
+                    self.title(f'Clicking - {__project__} {__version__}')
+                else:
+                    self.title(f'Paused - {__project__} {__version__}')
+                    return
+            if self.positionVar.get() == 'custom' and self.positionType.get() != 'locate' and not self.randomPositionVar.get():
                 pyautogui.moveTo(*map(int, STORAGE.FIXED_POSITIONS))
+            if self.positionVar.get() == 'custom' and self.positionType.get().strip() == 'manual' and self.randomPositionVar.get():
+                pos = [random.randint(*sorted((x, y))) for x, y in
+                       [STORAGE.Setting.clickArea[1::2], STORAGE.Setting.clickArea[2::2]]] if STORAGE.Setting.clickArea[
+                    0] else [random.randint(0, c) for c in pyautogui.size()]
+                pyautogui.moveTo(*pos)
 
             clickType = self.clickTypeOptionCombobox.get().lower().strip()
             mouseButton = self.mouseButtonOptionCombobox.get().lower().strip()
-            pyautogui.click(button=mouseButton,
-                            clicks=3 if clickType == 'triple' else 2 if clickType == 'double' else 1)
-            STORAGE.General.total_clicks += 1
-            STORAGE.General.current_click += 1
+
+            if clickType == 'scroll':
+                pyautogui.scroll(STORAGE.Setting.wheelSize if mouseButton == 'up' else -STORAGE.Setting.wheelSize)
+                STORAGE.General.total_scroll += 1
+                STORAGE.General.current_scroll += 1
+            else:
+                pyautogui.click(button=mouseButton,
+                                clicks=3 if clickType == 'triple' else 2 if clickType == 'double' else 1)
+                STORAGE.General.total_clicks += 1
+                STORAGE.General.current_click += 1
             print('clicked')
 
         def runClicks():
             nonlocal sleepTime
 
-            repeatTime = -1 if self.repeatVar.get() == 'unlimited' else int(self.limitedRepeatSpinbox.get())
+            if not self.limitedRepeatSpinbox.get().strip().isdigit() and self.repeatVar.get() == 'limited':
+                messagebox.showwarning('Invalid repeat time', 'The repeat time input must not be blank.')
+                self.stopClicking()
+                return
+            else:
+                repeatTime = -1 if self.repeatVar.get() == 'unlimited' else int(self.limitedRepeatSpinbox.get())
             while 1:
                 if not repeatTime:
                     self.stopClicking()
                     break
                 if not STORAGE.CLICKING:
+                    self.stopClicking()
                     break
                 try:
                     flag = time.perf_counter()
+                    if self.positionVar.get() == 'custom' and self.positionType.get() == 'locate':
+                        if not os.path.isfile(STORAGE.LOCATE_SCREEN[1]):
+                            messagebox.showwarning('FileNotFound Error',
+                                                   f'Unable to open the image. Make sure your image path is correct.\nPath: {STORAGE.LOCATE_SCREEN[1]}')
+                            self.stopClicking()
+                            return
+                        # noinspection PyArgumentList
+                        coords = pyautogui.locateCenterOnScreen(STORAGE.LOCATE_SCREEN[1],
+                                                                confidence=STORAGE.Setting.confidence)
+                        if coords is not None:
+                            if STORAGE.LOCATE_SCREEN[0]:
+                                pyautogui.moveTo(*coords)
+                            click()
+
+                            time.sleep(
+                                random.uniform(*STORAGE.Setting.isRandomIntervalList[1:]) if
+                                STORAGE.Setting.isRandomIntervalList[
+                                    0] else sleepTime)
+                            allFlag = time.perf_counter()
+                            self.showInterval.configure(text='Interval/l: ~{}'.format(
+                                Utilities.Function.seconds_to_formatted(round(allFlag - flag, 3), with_hour=True)))
+                            repeatTime -= 1
+                        continue
+
+                    if pyautogui.position() in pyautogui.FAILSAFE_POINTS:
+                        raise pyautogui.FailSafeException
                     click()
                     stopFlag = time.perf_counter()
 
-                    time.sleep(sleepTime)
+                    time.sleep(
+                        random.uniform(*STORAGE.Setting.isRandomIntervalList[1:]) if
+                        STORAGE.Setting.isRandomIntervalList[
+                            0] else sleepTime)
                     allFlag = time.perf_counter()
                     print(sleepTime, stopFlag - flag, allFlag - flag)
                 except pyautogui.FailSafeException:
@@ -411,8 +974,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                     messagebox.showwarning('Fail-safe Triggered',
                                            f'You have triggered {__project__} fail-safe by moving the mouse to the corner of the screen.\n\n(You can disable it in the settings, but it\'s NOT RECOMMENDED)')
                     self.stopClicking()
-                    keyboard.add_hotkey(STORAGE.Setting.trigger_hotkey,
-                                        lambda: root.stopClicking() if STORAGE.CLICKING else root.startClicking())
+                    Utilities.add_trigger_hotkey()
                     Utilities.writelog('Fail-safe triggered. Clicking progress stopped', ('', '\n', True))
 
                     break
@@ -423,7 +985,8 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
     def stopClicking(self):
         self.startClickButton.configure(state='normal')
         self.stopClickButton.configure(state='disabled')
-        self.settingButton.configure(state='normal')
+        self.extensionsButton.configure(state='normal', cursor='hand2')
+        self.settingButton.configure(state='normal', cursor='hand2')
         self.title(f'Stopped - {__project__} {__version__}')
         STORAGE.CLICKING = False
 
@@ -434,6 +997,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             widget.configure(state='readonly' if widget in [self.clickTypeOptionCombobox,
                                                             self.mouseButtonOptionCombobox] else 'normal')
         Utilities.writelog(f'CLICKING STOPPED', ('', '\n', True))
+        print('stopped')
 
     # class: menu
     def menuActions(self):
@@ -451,14 +1015,16 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         for widget in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox,
                        self.intervalMillisecondCombobox, self.mouseButtonOptionCombobox, self.clickTypeOptionCombobox,
                        self.limitedRepeatSpinbox, self.limitedRepeatRadiobutton, self.unlimitedRepeatRadiobutton,
-                       self.mousePositionRadiobutton, self.customPositionRadiobutton, self.startClickButton]:
-            widget.configure(state='disabled')
+                       self.mousePositionRadiobutton, self.customPositionRadiobutton, self.startClickButton,
+                       self.extensionsButton]:
+            widget.configure(state='disabled', cursor='')
         keyboard.unregister_all_hotkeys()
         Utilities.add_default_hotkeys()
 
         settingWindow = STORAGE.Setting.ON = tk.Toplevel(self)
         settingWindow.title('Settings')
         settingWindow.resizable(False, False)
+        settingWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
 
         settingWindow.geometry(f'+{self.winfo_x() + self.winfo_width() + 10}+{self.winfo_y()}')
         self.bind('<Configure>', lambda _: settingWindow.geometry(
@@ -467,11 +1033,280 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         allSettingsFrame = tk.Frame(settingWindow)
         allSettingsFrame.grid(row=3, column=3, padx=10, pady=10)
 
-        # SETTING 1: Hotkeys
-        setting1_hotkey_frame = ttk.LabelFrame(allSettingsFrame, text='Hotkeys')
-        setting1_hotkey_frame.grid(row=3, column=3, sticky='ew', pady=(0, 5))
+        # SETTING 1: Advanced settings
+        setting1_advanced_frame = ttk.LabelFrame(allSettingsFrame, text='Advanced')
+        setting1_advanced_frame.grid(row=1, column=3, sticky='ew', pady=(0, 5))
 
-        _setting1_hotkey_frame = tk.Frame(setting1_hotkey_frame)
+        _setting1_advanced_frame = tk.Frame(setting1_advanced_frame)
+        _setting1_advanced_frame.grid(row=3, column=3, sticky='ew', padx=(10, 0), pady=(0, 5))
+        _setting1_advanced_frame.grid_columnconfigure(3, weight=1)
+
+        randomIntervalValue = tk.IntVar()
+        randomIntervalCheckbutton = tk.Checkbutton(_setting1_advanced_frame, text='Random interval',
+                                                   variable=randomIntervalValue,
+                                                   command=lambda: randomIntervalToggled())
+        ToolTip(randomIntervalCheckbutton, msg='[Auto-saved] Randomize the interval between each mouse action.',
+                delay=0.25)
+        randomIntervalCheckbutton.select() if STORAGE.Setting.isRandomIntervalList[0] else None
+        randomIntervalCheckbutton.grid(row=3, column=3, sticky='w')
+        randomIntervalCheckbutton.bind('<Button-3>', lambda _: randomIntervalToggled())
+
+        def randomIntervalToggled():
+            if not randomIntervalValue.get():
+                self.showInterval.configure(
+                    text=f'Interval: {":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}')
+                STORAGE.Setting.isRandomIntervalList[0] = False
+                return
+            self.showInterval.configure(
+                text=f'Interval/r: {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[1])} ~ {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[2])}')
+
+            self.focus()
+            askRandomIntervalDialog = tk.Toplevel(self)
+            askRandomIntervalDialog.title('')
+            Utilities.child_geometry(askRandomIntervalDialog, self)
+            askRandomIntervalDialog.resizable(False, False)
+            askRandomIntervalDialog.attributes('-topmost', STORAGE.Setting.isTopmost)
+
+            askRandomIntervalDialog.grab_set()
+            askRandomIntervalDialog.focus()
+
+            alldialogFrame = tk.Frame(askRandomIntervalDialog)
+            alldialogFrame.grid(row=3, column=3, padx=15, pady=(15, 0), ipadx=5, ipady=5)
+            alldialogFrame.grid_columnconfigure(3, weight=1)
+
+            tk.Label(alldialogFrame, text='Randomize from:').grid(row=3, column=2)
+
+            start_randomSecondsEntry = tk.Entry(alldialogFrame, width=8, validate='key', validatecommand=(self.register(
+                lambda item: True if item == '' or Utilities.Function.isfloat(item) and float(item) <= 3599 and len(
+                    item.split('.')[1] if len(
+                        item.split('.')) > 1 else '') <= 3 else False),
+                                                                                                          '%P'))
+            start_randomSecondsEntry.grid(row=3, column=3, sticky='e')
+            tk.Label(alldialogFrame, text='s').grid(row=3, column=4, sticky='w')
+
+            tk.Label(alldialogFrame, text='to').grid(row=3, column=5, padx=5)
+
+            end_randomSecondsEntry = tk.Entry(alldialogFrame, width=8, validate='key', validatecommand=(self.register(
+                lambda item: True if item == '' or Utilities.Function.isfloat(item) and float(item) <= 3600 and len(
+                    item.split('.')[1] if len(
+                        item.split('.')) > 1 else '') <= 3 else False),
+                                                                                                        '%P'))
+            end_randomSecondsEntry.grid(row=3, column=7, sticky='e')
+            tk.Label(alldialogFrame, text='s').grid(row=3, column=8, sticky='w')
+            if STORAGE.Setting.isRandomIntervalList[1] != STORAGE.Setting.isRandomIntervalList[2]:
+                start_randomSecondsEntry.insert(0, f'{STORAGE.Setting.isRandomIntervalList[1]:.3f}')
+                end_randomSecondsEntry.insert(0, f'{STORAGE.Setting.isRandomIntervalList[2]:.3f}')
+
+            saveProgressButton = ttk.Button(askRandomIntervalDialog, text='Auto-saved', state='disabled')
+            saveProgressButton.grid(row=11, column=3, pady=(3, 10))
+
+            def bindSubmitRandomRange(_):
+                if (float(start_randomSecondsEntry.get()) if start_randomSecondsEntry.get() != "" else 0) < (
+                        float(end_randomSecondsEntry.get()) if end_randomSecondsEntry.get() != "" else 0):
+                    STORAGE.Setting.isRandomIntervalList = [
+                        False, float(start_randomSecondsEntry.get()) if start_randomSecondsEntry.get() != "" else 0,
+                        float(end_randomSecondsEntry.get()) if end_randomSecondsEntry.get() != "" else 0]
+                self.showInterval.configure(
+                    text=f'Interval/r: {Utilities.Function.seconds_to_formatted(float(start_randomSecondsEntry.get()) if start_randomSecondsEntry.get() != "" else 0)} ~ {Utilities.Function.seconds_to_formatted(float(end_randomSecondsEntry.get()) if end_randomSecondsEntry.get() != "" else 0)}')
+
+            start_randomSecondsEntry.bind('<KeyRelease>', bindSubmitRandomRange)
+            end_randomSecondsEntry.bind('<KeyRelease>', bindSubmitRandomRange)
+
+            def exitRandomIntervalDialog():
+                if (float(start_randomSecondsEntry.get()) if start_randomSecondsEntry.get() != "" else 0) >= (
+                        float(end_randomSecondsEntry.get()) if end_randomSecondsEntry.get() != "" else 0):
+                    if messagebox.askyesno(
+                            'Invalid Random Interval',
+                            'The random interval range is invalid.\nIf you close, nothing will be saved. Would you still like to exit?',
+                            icon='warning', parent=askRandomIntervalDialog):
+                        if STORAGE.Setting.isRandomIntervalList[0]:
+                            self.showInterval.configure(
+                                text=f'Interval/r: {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[1])} ~ {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[2])}')
+                        else:
+                            self.showInterval.configure(
+                                text=f'Interval: {":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}')
+                            STORAGE.Setting.isRandomIntervalList[0] = False
+                            randomIntervalCheckbutton.deselect()
+                    else:
+                        return
+                askRandomIntervalDialog.destroy()
+                STORAGE.Setting.isRandomIntervalList[0] = True if randomIntervalValue.get() else False
+                Utilities.add_default_hotkeys()
+                Utilities.add_trigger_hotkey()
+
+            askRandomIntervalDialog.protocol('WM_DELETE_WINDOW', exitRandomIntervalDialog)
+
+        mouseScrollVar = tk.IntVar(value=STORAGE.Setting.wheelSize // 100)
+        mouseScrollLengthFrame = tk.Frame(_setting1_advanced_frame)
+        mouseScrollLengthFrame.grid(row=5, column=3, sticky='ew')
+
+        wheelsize_label = tk.Label(mouseScrollLengthFrame, text='Wheel size:')
+        wheelsize_label.grid(row=3, column=3, sticky='w', padx=(0, 5))
+        ToolTip(wheelsize_label, msg='The size of the wheel when auto-scrolling (default=100).', delay=0.25)
+        mouseScrollLengthSlider = ttk.Scale(mouseScrollLengthFrame, from_=1, to=20, orient='horizontal',
+                                            variable=mouseScrollVar,
+                                            command=lambda _: mouseScrollLengthDisplayLabel.configure(
+                                                text=mouseScrollVar.get() * 100))
+        mouseScrollLengthSlider.grid(row=3, column=5, sticky='ew')
+
+        mouseScrollLengthDisplayLabel = tk.Label(mouseScrollLengthFrame, text=mouseScrollVar.get() * 100)
+        mouseScrollLengthDisplayLabel.grid(row=3, column=7, padx=5)
+
+        imageDetectConfidenceVar = tk.IntVar(value=STORAGE.Setting.confidence * 10)
+        imageDetectConfidenceFrame = tk.Frame(_setting1_advanced_frame)
+        imageDetectConfidenceFrame.grid(row=7, column=3, sticky='ew')
+
+        detect_accuracy_label = tk.Label(imageDetectConfidenceFrame, text='Detect accuracy:')
+        detect_accuracy_label.grid(row=3, column=3, sticky='w', padx=(0, 5))
+        ToolTip(detect_accuracy_label, msg='The accuracy of the image detector (default=0.8).', delay=0.25)
+        imageDetectConfidenceSlider = ttk.Scale(imageDetectConfidenceFrame, from_=1, to=10, orient='horizontal',
+                                                variable=imageDetectConfidenceVar,
+                                                command=lambda _: imageDetectConfidenceDisplayLabel.configure(
+                                                    text=imageDetectConfidenceVar.get() / 10))
+        imageDetectConfidenceSlider.grid(row=3, column=5, sticky='ew')
+
+        imageDetectConfidenceDisplayLabel = tk.Label(imageDetectConfidenceFrame,
+                                                     text=imageDetectConfidenceVar.get() / 10)
+        imageDetectConfidenceDisplayLabel.grid(row=3, column=7, padx=5)
+
+        clickAreaFrame = tk.Frame(_setting1_advanced_frame)
+        clickAreaFrame.grid(row=9, column=3, sticky='ew')
+
+        click_area_label = tk.Label(clickAreaFrame, text='Click area:')
+        click_area_label.grid(row=3, column=3, sticky='w', padx=(0, 5))
+        ToolTip(click_area_label, msg='Define a specific area on the screen where the mouse actions are made.')
+        clickAreaCombobox = ttk.Combobox(clickAreaFrame, values=['Fullscreen', 'Custom'], state='readonly', width=9)
+        clickAreaCombobox.current(1 if STORAGE.Setting.clickArea[0] else 0)
+        clickAreaCombobox.grid(row=3, column=5)
+        ToolTip(clickAreaCombobox,
+                msg=lambda: create_window_as_coordinates(),
+                delay=0.5)
+
+        def create_window_as_coordinates():
+            return f'Position: {real_pos[0], real_pos[1]}; {real_pos[2], real_pos[3]}' if clickAreaCombobox.get() == 'Custom' else f'Fullscreen ({"x".join(map(str, pyautogui.size()))})'
+
+        # noinspection PyUnresolvedReferences
+        def preview_range():
+            if clickAreaCombobox.get().strip() == 'Custom':
+                previewAreaButton.configure(state='disabled')
+
+                previewAreaWindow = tk.Toplevel(settingWindow, highlightthickness=3, background='purple',
+                                                highlightbackground='black')
+                previewAreaWindow.title('Preview')
+                previewAreaWindow.geometry(
+                    (lambda x1, y1, x2, y2: f'{abs(x2 - x1)}x{abs(y2 - y1)}+{min(x1, x2)}+{min(y1, y2)}')(*fake_pos))
+                previewAreaWindow.resizable(False, False)
+                previewAreaWindow.overrideredirect(True)
+                previewAreaWindow.attributes('-topmost', True)
+                previewAreaWindow.attributes('-transparentcolor', 'purple')
+                previewAreaWindow.grab_set()
+                previewAreaWindow.focus()
+
+                previewAreaWindow.grid_columnconfigure(3, weight=1)
+                previewAreaWindow.grid_rowconfigure(3, weight=1)
+                tk.Canvas(previewAreaWindow, background='purple').grid(row=3, column=3, sticky='nsew')
+
+                closebutton = tk.Frame(previewAreaWindow, background='red', cursor='hand2', width=15, height=15)
+                closebutton.bind('<Button-1>',
+                                 lambda _: [previewAreaWindow.destroy(), previewAreaButton.configure(state='normal')])
+                previewAreaWindow.bind('<Escape>',
+                                       lambda _: [previewAreaWindow.destroy(),
+                                                  previewAreaButton.configure(state='normal')])
+                closebutton.grid(row=3, column=3, sticky='nw', padx=2, pady=2)
+                tk.Label(previewAreaWindow, text=f'{real_pos[0], real_pos[1]}; {real_pos[2], real_pos[3]}',
+                         highlightthickness=2, highlightbackground='black').grid(row=3, column=3)
+
+        previewAreaButton = ttk.Button(clickAreaFrame, text='Preview', command=preview_range, width=7,
+                                       state='normal' if STORAGE.Setting.clickArea[0] else 'disabled')
+        previewAreaButton.grid(row=3, column=7, padx=(5, 0))
+
+        real_pos = STORAGE.Setting.clickArea[1:] if clickAreaCombobox.get().strip() == 'Custom' else [0, 0, 0, 0]
+        fake_pos = STORAGE.Garbage.tk_clickArea
+        min_width, min_height = 50, 50
+
+        def chooseClickingArea(_):
+            if clickAreaCombobox.get().strip() != 'Custom':
+                previewAreaButton.configure(state='disabled')
+                return
+            if keyboard.is_pressed('ctrl'):
+                return
+            nonlocal real_pos
+
+            def bind_mouse_on(event):
+                nonlocal isChoosing, old_pos, rect
+                rect = canvas.create_rectangle(event.x, event.y, event.x, event.y, outline='black', width=3)
+                isChoosing = True
+                old_pos = event.x, event.y
+                real_pos[0], real_pos[1] = tuple(pyautogui.position())
+                fake_pos[0], fake_pos[1] = event.x, event.y
+
+            def bind_mouse_off(event):
+                nonlocal isChoosing, real_pos
+                if isChoosing:
+                    real_pos[2], real_pos[3] = tuple(pyautogui.position())
+                    fake_pos[2], fake_pos[3] = event.x, event.y
+
+                    if abs(real_pos[2] - real_pos[0]) >= min_width and abs(real_pos[3] - real_pos[1]) >= min_height:
+                        if abs(real_pos[0] - real_pos[2]) == pyautogui.size()[0] - 1 and abs(
+                                real_pos[1] - real_pos[3]) == pyautogui.size()[1] - 1:
+                            clickAreaCombobox.set('Fullscreen')
+                            previewAreaButton.configure(state='disabled')
+                            STORAGE.Setting.clickArea[0] = False
+                        else:
+                            clickAreaCombobox.set('Custom')
+                            previewAreaButton.configure(state='normal')
+                        settingWindow.focus()
+                        choose_area_window.destroy()
+                    else:
+                        messagebox.showwarning('Area too small', 'Your click area size is too small. Please try again.',
+                                               parent=choose_area_window)
+                        canvas.delete(rect)
+                        choose_area_window.focus()
+
+            def bind_mouse_movement(event):
+                nonlocal isChoosing, old_pos, rect
+                if isChoosing:
+                    canvas.delete(rect)
+                    rect = canvas.create_rectangle(old_pos[0], old_pos[1], event.x, event.y,
+                                                   outline='black' if abs(event.x - old_pos[0]) >= min_width and abs(
+                                                       event.y - old_pos[1]) >= min_height else 'red', width=3)
+
+            choose_area_window = tk.Toplevel(root)
+            choose_area_window.title('Choose Area Window')
+            choose_area_window.state('zoomed')
+            choose_area_window.overrideredirect(True)
+            choose_area_window.attributes('-alpha', 0.5)
+            choose_area_window.attributes('-topmost', True)
+            choose_area_window.configure(cursor='crosshair')
+            choose_area_window.grab_set()
+
+            canvas = tk.Canvas(choose_area_window)
+            canvas.pack(expand=tk.YES, fill=tk.BOTH)
+
+            isChoosing = False
+            old_pos = (0, 0)
+            old_real_pos = real_pos
+            real_pos = [0, 0, 0, 0]
+            rect = None
+
+            choose_area_window.bind('<Button-1>', bind_mouse_on)
+            choose_area_window.bind('<ButtonRelease-1>', bind_mouse_off)
+            choose_area_window.bind('<B1-Motion>', bind_mouse_movement)
+
+            def exit_chooseArea(_):
+                nonlocal real_pos
+                choose_area_window.destroy()
+                real_pos = old_real_pos
+
+            choose_area_window.bind('<Escape>', exit_chooseArea)
+
+        clickAreaCombobox.bind('<<ComboboxSelected>>', chooseClickingArea)
+
+        # SETTING 2: Hotkeys
+        setting2_hotkey_frame = ttk.LabelFrame(allSettingsFrame, text='Hotkeys')
+        setting2_hotkey_frame.grid(row=3, column=3, sticky='ew', pady=(0, 5))
+
+        _setting1_hotkey_frame = tk.Frame(setting2_hotkey_frame)
         _setting1_hotkey_frame.grid(row=3, column=3, padx=15, pady=5)
 
         hotkeyDisplayEntry = tk.Entry(_setting1_hotkey_frame, width=11)
@@ -484,7 +1319,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             chooseHotkeysButton.configure(state='disabled')
             Utilities.writelog('Listening for hotkey input..', ('', '\n', True))
 
-            hotkeyDisplayEntry.delete(0, tk.END)
+            hotkeyDisplayEntry.delete(0, 'end')
             hotkeyDisplayEntry.insert(0, 'Listening...')
             hotkeyDisplayEntry.configure(state='disabled')
 
@@ -494,7 +1329,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
                 chooseHotkeysButton.configure(state='normal')
                 hotkeyDisplayEntry.configure(state='normal')
-                hotkeyDisplayEntry.delete(0, tk.END)
+                hotkeyDisplayEntry.delete(0, 'end')
                 hotkeyDisplayEntry.insert(0, hotkey)
 
                 invalidKeysLabel.configure(text='')
@@ -524,36 +1359,43 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                    ('', '\n', True), logType='WARNING')
 
             if allChecked:
-                print(STORAGE.Setting.trigger_hotkey)
+                print(hotkeyDisplayEntry.get())
 
         hotkeyDisplayEntry.bind('<KeyRelease>', check_key_validation)
 
         chooseHotkeysButton = ttk.Button(_setting1_hotkey_frame, text='Input', width=5, command=inputHotkeys)
         chooseHotkeysButton.grid(row=3, column=5, padx=(5, 0))
 
-        invalidKeysLabel = tk.Label(_setting1_hotkey_frame, text='', fg='red')
+        invalidKeysLabel = tk.Label(_setting1_hotkey_frame, text='', foreground='red')
         invalidKeysLabel.grid(row=3, column=7, padx=5)
 
-        # SETTING 2: Pick position dialog
-        setting2_pickposition_frame = ttk.LabelFrame(allSettingsFrame, text='Pick-position dialog')
-        setting2_pickposition_frame.grid(row=5, column=3, sticky='ew', pady=(0, 5))
+        # SETTING 3: Pick position dialog
+        setting3_pickposition_frame = ttk.LabelFrame(allSettingsFrame, text='Pick-position dialog')
+        setting3_pickposition_frame.grid(row=5, column=3, sticky='ew', pady=(0, 5))
+        setting3_pickposition_frame.grid_columnconfigure(3, weight=1)
 
-        _setting2_pickposition_frame = tk.Frame(setting2_pickposition_frame)
-        _setting2_pickposition_frame.grid(row=3, column=3, padx=15, pady=5)
+        _setting2_pickposition_frame = tk.Frame(setting3_pickposition_frame)
+        _setting2_pickposition_frame.grid(row=3, column=3, padx=15, pady=5, sticky='ew')
+        _setting2_pickposition_frame.grid_columnconfigure(3, weight=1)
 
         transparencyFrame = tk.Frame(_setting2_pickposition_frame)
         transparencyFrame.grid(row=3, column=3)
+        transparencyFrame.grid_columnconfigure((3, 5, 7), weight=1)
 
         transparentVar = tk.IntVar(value=STORAGE.Setting.transparency * 10)
-        tk.Label(transparencyFrame, text='Transparency:').grid(row=21, column=3, sticky='w', padx=5)
+        transparency_label = tk.Label(transparencyFrame, text='Transparency:')
+        transparency_label.grid(row=21, column=3, sticky='w', padx=5)
+        ToolTip(transparency_label, msg='Set the transparency for the position picker (default=0.5).', delay=0.25)
         slider1_transparent = ttk.Scale(transparencyFrame, from_=1, to=10, orient='horizontal', variable=transparentVar,
                                         command=lambda _: transparencyDisplayLabel.configure(
-                                            text=int(slider1_transparent.get()) / 10))
+                                            text=transparentVar.get() / 10))
         slider1_transparent.grid(row=21, column=5, sticky='ew')
-        transparencyDisplayLabel = tk.Label(transparencyFrame, text=f'{slider1_transparent.get() / 10}')
+        transparencyDisplayLabel = tk.Label(transparencyFrame, text=f'{transparentVar.get() / 10}')
         transparencyDisplayLabel.grid(row=21, column=7, padx=5)
 
-        ttk.Button(_setting2_pickposition_frame, text='Open', command=lambda: self.customPositionDialog(True)).grid(
+        askCustomDialogOpenButton = ttk.Button(_setting2_pickposition_frame, text='Open',
+                                               command=lambda: self.customPositionDialog(True))
+        askCustomDialogOpenButton.grid(
             row=5, column=3, sticky='ew', pady=5)
 
         # SETTING n: Miscellaneous
@@ -567,34 +1409,38 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         topmostVar = tk.IntVar()
         checkbox1_topmost = tk.Checkbutton(_setting10_miscellaneous_frame, text='Always on top', variable=topmostVar,
                                            onvalue=1, offvalue=0)
+        ToolTip(checkbox1_topmost, msg=f'Pin {__project__} to the front of the screen.', delay=0.25)
         checkbox1_topmost.select() if STORAGE.Setting.isTopmost else None
         checkbox1_topmost.grid(row=3, column=3, sticky='w')
 
         # # n: Misc 2 - Auto pop up
         autopopupVar = tk.IntVar()
         checkbox2_failsafe = tk.Checkbutton(_setting10_miscellaneous_frame, text='Auto extra dialog/pop-up',
-                                            variable=autopopupVar, onvalue=1, offvalue=0)
+                                            variable=autopopupVar)
+        ToolTip(checkbox2_failsafe, msg='Toggle uneccessary pop-up dialogs/messagebox.', delay=0.25)
         checkbox2_failsafe.select() if STORAGE.Setting.isAutoPopup else None
         checkbox2_failsafe.grid(row=5, column=3, sticky='w')
 
         # # n: Misc 3 - Fail-safe
         failsafeVar = tk.IntVar()
         checkbox3_failsafe = tk.Checkbutton(_setting10_miscellaneous_frame, text='Fail-safe system',
-                                            variable=failsafeVar, onvalue=1, offvalue=0)
+                                            variable=failsafeVar)
+        ToolTip(checkbox3_failsafe, msg='Stop all actions when mouse is on the corners (recommended).', delay=0.25)
         checkbox3_failsafe.select() if STORAGE.Setting.isFailsafe else None
         checkbox3_failsafe.grid(row=7, column=3, sticky='w')
 
         def save():
-            keyboard.unregister_all_hotkeys()
-            Utilities.add_default_hotkeys()
-            keyboard.add_hotkey(STORAGE.Setting.trigger_hotkey,
-                                lambda: root.stopClicking() if STORAGE.CLICKING else root.startClicking())
+            STORAGE.Setting.trigger_hotkey = hotkeyDisplayEntry.get().lower().strip()
+            print('added', STORAGE.Setting.trigger_hotkey)
 
-            STORAGE.Setting.trigger_hotkey = hotkeyDisplayEntry.get()
             STORAGE.Setting.isTopmost = True if topmostVar.get() else False
             STORAGE.Setting.isFailsafe = True if failsafeVar.get() else False
             STORAGE.Setting.isAutoPopup = True if autopopupVar.get() else False
-            STORAGE.Setting.transparency = int(slider1_transparent.get()) / 10
+            STORAGE.Setting.wheelSize = mouseScrollVar.get() * 100
+            STORAGE.Setting.confidence = imageDetectConfidenceVar.get() / 10
+            STORAGE.Setting.transparency = transparentVar.get() / 10
+
+            STORAGE.Setting.clickArea = [clickAreaCombobox.get().strip() == 'Custom'] + real_pos
 
             self.attributes('-topmost', STORAGE.Setting.isTopmost)
             pyautogui.FAILSAFE = STORAGE.Setting.isFailsafe
@@ -609,16 +1455,34 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                             self.intervalMillisecondCombobox, self.mouseButtonOptionCombobox,
                             self.clickTypeOptionCombobox,
                             self.limitedRepeatSpinbox, self.limitedRepeatRadiobutton, self.unlimitedRepeatRadiobutton,
-                            self.mousePositionRadiobutton, self.customPositionRadiobutton, self.startClickButton]:
-                _widget.configure(state='readonly' if _widget in [self.clickTypeOptionCombobox,
-                                                                  self.mouseButtonOptionCombobox] else 'normal')
+                            self.mousePositionRadiobutton, self.customPositionRadiobutton, self.startClickButton,
+                            self.extensionsButton]:
+                if STORAGE.Setting.isRandomIntervalList[0] and _widget in [self.intervalHourCombobox,
+                                                                           self.intervalMinuteCombobox,
+                                                                           self.intervalSecondCombobox,
+                                                                           self.intervalMillisecondCombobox]:
+                    continue
+                if _widget is self.extensionsButton:
+                    _widget.configure(state='normal', cursor='hand2')
+                else:
+                    _widget.configure(state='readonly' if _widget in [self.clickTypeOptionCombobox,
+                                                                      self.mouseButtonOptionCombobox] else 'normal')
+            keyboard.unregister_all_hotkeys()
+            Utilities.add_default_hotkeys()
+            Utilities.add_trigger_hotkey()
 
         def on_exit(saving: bool = True, on_quit: bool = False):
-            if on_quit:
+            if not keyboard.is_pressed('ctrl') and on_quit:
                 if not messagebox.askyesno('Closing Settings',
                                            'Are you sure that you want to close settings? Everything won\'t be saved.',
                                            default='no', parent=settingWindow, icon='warning'):
                     return
+
+            if not on_quit:
+                for _widget in [randomIntervalCheckbutton, hotkeyDisplayEntry, chooseHotkeysButton, slider1_transparent,
+                                askCustomDialogOpenButton,
+                                checkbox1_topmost, checkbox2_failsafe, checkbox3_failsafe, saveButton]:
+                    _widget.configure(state='disabled')
 
             if saving:
                 save()
@@ -626,23 +1490,415 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             else:
                 Utilities.writelog('Settings closed (saving: false)', ('', '\n', True))
 
-            closing()
+            root.after(1 if on_quit else 1000, closing)
 
         saveSettingsFrame = tk.Frame(settingWindow)
         saveSettingsFrame.grid(row=100, column=3, sticky='ew', pady=(0, 10))
-        saveSettingsFrame.grid_columnconfigure(3, weight=1)
+        saveSettingsFrame.grid_columnconfigure((3, 5), weight=1)
 
         saveButtonStyle = ttk.Style()
         saveButtonStyle.configure('save.TButton', foreground='darkgreen', font=('', 9, 'bold'))
 
         saveButton = ttk.Button(saveSettingsFrame, text='Save & Quit', style='save.TButton', command=on_exit)
-        saveButton.grid(row=3, column=3, ipadx=15)
+        saveButton.grid(row=3, column=3, ipadx=15, sticky='nse', padx=3)
+
+        terminalButton = ttk.Button(saveSettingsFrame, image=self.terminalImage, cursor='hand2',
+                                    command=Utilities.Dialogs.Terminal.dialogs)
+        terminalButton.grid(row=3, column=5, sticky='w', ipadx=5)
 
         settingWindow.protocol('WM_DELETE_WINDOW', lambda: on_exit(False, True))
         Utilities.writelog('Settings window initialized', ('', '\n', True))
 
+    def extensions(self):
+        STORAGE.Extension.ON = extensionsWindow = tk.Toplevel(self)
+        extensionsWindow.title(f'Extensions List ({STORAGE.Extension.version})')
+        Utilities.child_geometry(extensionsWindow, self)
+        extensionsWindow.resizable(False, False)
+        extensionsWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
+        self.withdraw()
+
+        keyboard.unregister_all_hotkeys()
+        Utilities.add_default_hotkeys()
+
+        allExtensionsFrame = tk.Frame(extensionsWindow)
+        allExtensionsFrame.grid(row=3, column=3, sticky='nsew')
+
+        tk.Label(allExtensionsFrame, text='Extensions', font=('Calibri', 25, 'bold')).grid(row=0, column=3)
+
+        extensionsFrame = tk.Frame(allExtensionsFrame)
+        extensionsFrame.grid(row=5, column=3, padx=15, pady=15)
+        extensionsFrame.grid_columnconfigure((3, 5, 7), weight=1)
+        tk.Frame(extensionsFrame, background='black', height=3).grid(row=0, column=0, columnspan=100, sticky='ew')
+        tk.Frame(extensionsFrame, background='black', width=3).grid(row=0, column=0, rowspan=100, sticky='ns')
+        tk.Frame(extensionsFrame, background='black', height=3).grid(row=99, column=0, columnspan=100, sticky='ew')
+        tk.Frame(extensionsFrame, background='black', width=3).grid(row=0, column=99, rowspan=100, sticky='ns')
+
+        insideExtensionFrame = tk.Frame(extensionsFrame)
+        insideExtensionFrame.grid(row=3, column=3, padx=5, pady=5)
+
+        extension1_mouseRecorderButton = ttk.Button(insideExtensionFrame,
+                                                    text=f'MouseRecorder',
+                                                    cursor='hand2', command=self.mouseRecorder)
+        extension1_mouseRecorderButton.grid(row=3, column=3)
+        tk.Label(insideExtensionFrame, text=f'Version: {STORAGE.Extension.MouseRecorder.version}\nAuthor: {__author__}',
+                 anchor='center').grid(row=5, column=3)
+
+        tk.Frame(insideExtensionFrame, background='black', width=3).grid(row=3, column=4, sticky='ns', rowspan=100,
+                                                                         padx=5)
+
+        extension2_cpsCounterButton = ttk.Button(insideExtensionFrame,
+                                                 text=f'CPS Calculator',
+                                                 command=self.cpsCounter)
+        extension2_cpsCounterButton.grid(row=3, column=5)
+        tk.Label(insideExtensionFrame, text=f'Version: {STORAGE.Extension.CpsCounter.version}\nAuthor: {__author__}',
+                 anchor='center').grid(row=5, column=5)
+
+        def pluginManager(folder_path):
+            pluginsManagerWindow = tk.Toplevel(extensionsWindow)
+            pluginsManagerWindow.title('Plugins Manager')
+            Utilities.child_geometry(pluginsManagerWindow, STORAGE.Extension.ON)
+            pluginsManagerWindow.grab_set()
+
+            header_label = tk.Label(pluginsManagerWindow, text='Plugins', font=('Calibri', 25, 'bold'))
+            header_label.grid(row=3, column=3, columnspan=2, pady=10)
+
+            files_listbox = tk.Listbox(pluginsManagerWindow)
+            files_listbox.grid(row=4, column=3, padx=(10, 0), pady=(10, 0), sticky='nsew')
+
+            for file in Utilities.Function.show_files(r'data\plugins', '.txt'):
+                files_listbox.insert('end', file)
+
+            scrollbar = tk.Scrollbar(pluginsManagerWindow, orient='vertical', command=files_listbox.yview)
+            scrollbar.grid(row=4, column=4, sticky='ns', padx=(0, 10))
+            files_listbox.configure(yscrollcommand=scrollbar.set)
+
+            pluginActionFrame = tk.Frame(pluginsManagerWindow)
+            pluginActionFrame.grid(row=5, column=3, sticky='w', pady=5)
+
+            def on_add():
+                repetition = 0
+                while os.path.isfile(
+                        plugin_path := f'data\\plugins\\Untitled{f" ({repetition})" if repetition else ""}.txt'):
+                    repetition += 1
+                    pluginsManagerWindow.focus()
+
+                with open(plugin_path, 'w') as newplugin:
+                    newplugin.write(f'# Plugin: {plugin_path}; Index: {repetition}\n')
+
+                files_listbox.insert('end', os.path.basename(plugin_path))
+                files_listbox.yview('end')
+
+            def on_delete(_=None):
+                selected_index = files_listbox.curselection()
+                if selected_index:
+                    selected_file = files_listbox.get(selected_index)
+                    if messagebox.askyesno('Delete plugin',
+                                           f'Are you sure that you want to remove {selected_file}?\nThe file will be deleted from the disk.',
+                                           icon='warning'):
+                        try:
+                            os.remove(f'{folder_path}\\{selected_file}')
+                            files_listbox.delete(files_listbox.get(0, 'end').index(selected_file))
+                        except Exception as plugin_error:
+                            messagebox.showerror(f'Plugin: {selected_file}',
+                                                 f'[{type(plugin_error).__name__}]: {plugin_error}')
+
+            addPluginButton = ttk.Button(pluginActionFrame, text='+', width=2, command=on_add)
+            addPluginButton.grid(row=3, column=3, padx=(10, 0))
+
+            removePluginButton = ttk.Button(pluginActionFrame, text='-', width=2, command=on_delete)
+            removePluginButton.grid(row=3, column=5)
+
+            def on_rightclick(_):
+                selected_index = files_listbox.curselection()
+                if selected_index:
+                    selected_file = files_listbox.get(selected_index)
+                    if not Utilities.Dialogs.Custom.displayFileDialog(selected_file, folder_path, pluginsManagerWindow):
+                        files_listbox.delete(files_listbox.get(0, 'end').index(selected_file))
+
+            def on_double_leftclick(_):
+                selected_index = files_listbox.curselection()
+                if selected_index:
+                    selected_file = files_listbox.get(selected_index)
+                    with open(folder_path + '\\' + selected_file, 'r') as filerun:
+                        try:
+                            exec(filerun.read())
+                        except Exception as plugin_error:
+                            messagebox.showerror(f'Plugin: {selected_file}',
+                                                 f'[{type(plugin_error).__name__}]: {plugin_error}')
+
+            files_listbox.bind('<Double-1>', on_double_leftclick)
+            files_listbox.bind('<Button-3>', on_rightclick)
+            files_listbox.bind('<Delete>', on_delete)
+
+        manageExtensionsButton = ttk.Button(allExtensionsFrame, text='Manage plugins',
+                                            command=lambda: pluginManager(r'data\plugins'))
+        manageExtensionsButton.grid(row=11, column=3, sticky='ew')
+
+        def closeExtensions():
+            if keyboard.is_pressed('ctrl'):
+                extensionsWindow.destroy()
+                on_window_exit()
+                return
+
+            self.deiconify()
+            extensionsWindow.destroy()
+            STORAGE.Extension.ON = False
+
+            Utilities.add_default_hotkeys()
+            Utilities.add_trigger_hotkey()
+
+        extensionsWindow.protocol('WM_DELETE_WINDOW', closeExtensions)
+
+    # class: MouseRecorder
+    def mouseRecorder(self):
+        STORAGE.Extension.MouseRecorder.ON = recorderWindow = tk.Toplevel(STORAGE.Extension.ON)
+        recorderWindow.title(f'MouseRecorder {STORAGE.Extension.MouseRecorder.version}')
+        Utilities.child_geometry(recorderWindow, STORAGE.Extension.ON)
+        recorderWindow.resizable(False, False)
+        recorderWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
+        STORAGE.Extension.ON.withdraw()
+
+        keyboard.unregister_all_hotkeys()
+        Utilities.add_default_hotkeys()
+
+        allRecorderFrame = tk.Frame(recorderWindow)
+        allRecorderFrame.grid(row=3, column=3, sticky='nsew')
+
+        playbackRecordButton = ttk.Button(allRecorderFrame, text='Play', width=9, state='disabled',
+                                          command=lambda: threading.Thread(target=playRecord).start())
+        playbackRecordButton.grid(row=3, column=3)
+
+        startRecordButton = ttk.Button(allRecorderFrame, text='Record', width=9,
+                                       command=lambda: stopRecord() if hook else startRecord())
+        startRecordButton.grid(row=3, column=5)
+
+        def recorderSetting():
+            recorderWindow.withdraw()
+
+            def saveRecordSettings(widget=None):
+                STORAGE.Extension.MouseRecorder.playbackSpeed = playbackSpeedVar.get() / 2
+                if isinstance(widget, tk.Checkbutton) and all(
+                        not i for i in [recordClicksVar.get(), recordMovementsVar.get(), recordWheelrollsVar.get()]):
+                    widget.select()
+                STORAGE.Extension.MouseRecorder.isClicksRecorded = bool(recordClicksVar.get())
+                STORAGE.Extension.MouseRecorder.isMovementsRecorded = bool(recordMovementsVar.get())
+                STORAGE.Extension.MouseRecorder.isWheelrollsRecorded = bool(recordWheelrollsVar.get())
+                STORAGE.Extension.MouseRecorder.isInsertedEvents = bool(insertedEventsVar.get())
+
+            recorderSettingWindow = tk.Toplevel(recorderWindow)
+            recorderSettingWindow.title('Recorder Settings')
+            Utilities.child_geometry(recorderSettingWindow, recorderWindow)
+            recorderSettingWindow.resizable(False, False)
+
+            allRecorderSettingFrame = tk.Frame(recorderSettingWindow)
+            allRecorderSettingFrame.grid(row=3, column=3, padx=10)
+
+            # PLAYBACK FRAME
+            playbackSettingFrame = ttk.LabelFrame(allRecorderSettingFrame, text='Playback speed')
+            playbackSettingFrame.grid(row=3, column=3, sticky='ew')
+            playbackSpeedVar = tk.IntVar(value=STORAGE.Extension.MouseRecorder.playbackSpeed * 2)
+            playbackSpeedSlider = ttk.Scale(playbackSettingFrame, from_=1, to=6, orient='horizontal',
+                                            variable=playbackSpeedVar,
+                                            command=lambda _: playbackSpeedDisplayLabel.configure(
+                                                text=f'x{playbackSpeedVar.get() / 2}'))
+            playbackSpeedSlider.grid(row=3, column=3)
+            playbackSpeedDisplayLabel = tk.Label(playbackSettingFrame, text=f'x{playbackSpeedVar.get() / 2}')
+            playbackSpeedDisplayLabel.grid(row=3, column=5, padx=3)
+
+            # RECORD TARGET FRAME
+            recordTargetFrame = ttk.LabelFrame(allRecorderSettingFrame, text='Record targets')
+            recordTargetFrame.grid(row=5, column=3, sticky='ew', pady=(5, 0))
+
+            recordClicksVar = tk.IntVar()
+            recordClicksCheckbutton = tk.Checkbutton(recordTargetFrame, text='Mouse clicks',
+                                                     variable=recordClicksVar,
+                                                     command=lambda: saveRecordSettings(recordClicksCheckbutton))
+            self.after(10,
+                       lambda: recordClicksCheckbutton.select() if STORAGE.Extension.MouseRecorder.isClicksRecorded else None)
+            recordClicksCheckbutton.grid(row=3, column=3, sticky='w')
+
+            recordMovementsVar = tk.IntVar()
+            recordMovementsCheckbutton = tk.Checkbutton(recordTargetFrame, text='Movements',
+                                                        variable=recordMovementsVar,
+                                                        command=lambda: saveRecordSettings(recordMovementsCheckbutton))
+            self.after(10,
+                       lambda: recordMovementsCheckbutton.select() if STORAGE.Extension.MouseRecorder.isMovementsRecorded else None)
+            recordMovementsCheckbutton.grid(row=5, column=3, sticky='w')
+
+            recordWheelrollsVar = tk.IntVar()
+            recordWheelrollsCheckbutton = tk.Checkbutton(recordTargetFrame, text='Scroll wheel',
+                                                         variable=recordWheelrollsVar,
+                                                         command=lambda: saveRecordSettings(
+                                                             recordWheelrollsCheckbutton))
+            self.after(10,
+                       lambda: recordWheelrollsCheckbutton.select() if STORAGE.Extension.MouseRecorder.isWheelrollsRecorded else None)
+            recordWheelrollsCheckbutton.grid(row=7, column=3, sticky='w')
+
+            # MISCELLANEOUS
+            miscellaneousRecordSettingFrame = ttk.LabelFrame(allRecorderSettingFrame, text='Miscellaneous')
+            miscellaneousRecordSettingFrame.grid(row=7, column=3, sticky='ew', pady=(5, 0))
+
+            insertedEventsVar = tk.IntVar()
+            insertedEventsCheckbutton = tk.Checkbutton(miscellaneousRecordSettingFrame, text='Inserted events',
+                                                       variable=insertedEventsVar,
+                                                       command=lambda: saveRecordSettings(insertedEventsCheckbutton))
+            self.after(10,
+                       lambda: insertedEventsCheckbutton.select() if STORAGE.Extension.MouseRecorder.isInsertedEvents else None)
+            insertedEventsCheckbutton.grid(row=5, column=3, sticky='w')
+
+            #
+            ttk.Button(recorderSettingWindow, text='Auto-saved', state='disabled').grid(row=5, column=3, pady=7)
+
+            def closeRecorderSetting():
+                recorderSettingWindow.destroy()
+                recorderWindow.deiconify()
+                saveRecordSettings()
+
+            recorderSettingWindow.protocol('WM_DELETE_WINDOW', closeRecorderSetting)
+
+        recorderSettingButton = tk.Button(allRecorderFrame, background=allRecorderFrame.cget('background'),
+                                          activebackground=allRecorderFrame.cget('background'),
+                                          border=0,
+                                          image=self.settingImage, cursor='hand2', command=recorderSetting)
+        recorderSettingButton.grid(row=3, column=0, padx=3)
+
+        hook: mouse.hook | bool = False
+        hookThread: threading.Thread | bool = False
+        events = []
+
+        def startRecord():
+            nonlocal hook, hookThread
+            startRecordButton.configure(text='Stop')
+            playbackRecordButton.configure(state='disabled')
+            recorderSettingButton.configure(state='disabled')
+            if not STORAGE.Extension.MouseRecorder.isInsertedEvents:
+                events.clear()
+
+            def backgroundRecord():
+                nonlocal hook
+                hook = mouse.hook(events.append)
+
+            hookThread = threading.Thread(backgroundRecord())
+            hookThread.start()
+
+        def stopRecord():
+            nonlocal hook
+            mouse.unhook(hook)
+            hook = False
+
+            hookThread.join(0)
+
+            startRecordButton.configure(text='Start')
+            playbackRecordButton.configure(state='normal')
+            recorderSettingButton.configure(state='normal')
+
+        def playRecord():
+            startRecordButton.configure(state='disabled')
+            playbackRecordButton.configure(text='Playing', state='disabled')
+            recorderSettingButton.configure(state='disabled')
+            mouse.play(events, STORAGE.Extension.MouseRecorder.playbackSpeed,
+                       STORAGE.Extension.MouseRecorder.isClicksRecorded,
+                       STORAGE.Extension.MouseRecorder.isMovementsRecorded,
+                       STORAGE.Extension.MouseRecorder.isWheelrollsRecorded)
+            startRecordButton.configure(state='normal')
+            playbackRecordButton.configure(text='Play', state='normal')
+            recorderSettingButton.configure(state='normal')
+
+        def closeRecorder():
+            if hook and hookThread:
+                mouse.unhook(hook)
+                hookThread.join(0)
+
+            if keyboard.is_pressed('ctrl'):
+                recorderWindow.destroy()
+                on_window_exit()
+                return
+            if keyboard.is_pressed('shift'):
+                self.deiconify()
+                STORAGE.Extension.ON.destroy()
+                keyboard.unregister_all_hotkeys()
+                Utilities.add_default_hotkeys()
+                Utilities.add_trigger_hotkey()
+            else:
+                STORAGE.Extension.ON.deiconify()
+
+            STORAGE.Extension.MouseRecorder.ON = False
+            recorderWindow.destroy()
+
+        recorderWindow.protocol('WM_DELETE_WINDOW', closeRecorder)
+
+    def cpsCounter(self):
+        STORAGE.Extension.ON.destroy()
+        STORAGE.Extension.ON = False
+        Utilities.add_default_hotkeys()
+        Utilities.add_trigger_hotkey()
+        self.deiconify()
+
+        def update_cps_and_timer():
+            nonlocal click_count, start_time, running
+            if running:
+                current_time = time.perf_counter()
+                elapsed_time = (current_time - start_time) if start_time else 0
+                cps = click_count / elapsed_time if elapsed_time > 0 else 0
+                cps_label.configure(text=f'CPS: {cps:.2f}')
+                timer_label.configure(text=f'Time: {elapsed_time:.3f}s')
+                cpsCounterWindow.after(1, update_cps_and_timer)
+
+        def on_button_click():
+            nonlocal click_count, running
+            click_count += 1
+            click_label.configure(text=f'Clicks: {click_count}')
+            cpsCounterWindow.focus()
+
+        def start_program():
+            nonlocal running, start_time, click_count
+            running = True
+            click_count = 0
+            on_button_click()
+            start_time = time.perf_counter()
+            stop_button.configure(state='normal')
+            start_button.configure(text='Click me!', command=on_button_click)
+            update_cps_and_timer()
+
+        def stop_program():
+            nonlocal running
+            running = False
+            stop_button.configure(state='disabled')
+            start_button.configure(text='Start', command=start_program)
+            cpsCounterWindow.focus()
+
+        STORAGE.Extension.CpsCounter.ON = cpsCounterWindow = tk.Toplevel(self)
+        cpsCounterWindow.title('CPS Counter')
+        Utilities.child_geometry(cpsCounterWindow, self)
+
+        cpsCounterWindow.grid_columnconfigure(3, weight=1)
+        cpsCounterWindow.grid_rowconfigure(3, weight=1)
+        frame = ttk.Frame(cpsCounterWindow)
+        frame.grid(row=3, column=3, padx=100, pady=20)
+
+        click_count = 0
+        start_time = 0
+        running = False
+
+        click_label = ttk.Label(frame, text='Clicks: 0')
+        click_label.grid(row=0, column=0)
+
+        cps_label = ttk.Label(frame, text='CPS: 0.00')
+        cps_label.grid(row=1, column=0)
+
+        timer_label = ttk.Label(frame, text='Time: 0.000s')
+        timer_label.grid(row=2, column=0, pady=(0, 3))
+
+        start_button = ttk.Button(frame, text='Start', command=start_program)
+        start_button.grid(row=3, column=0, pady=1)
+
+        stop_button = ttk.Button(frame, text='Stop', command=stop_program, state='disabled')
+        stop_button.grid(row=4, column=0)
+
     # class: Position.custom
     def customPositionDialog(self, fromSetting=False):
+        if keyboard.is_pressed('ctrl') and not fromSetting:
+            return
         if not fromSetting and not STORAGE.Setting.isAutoPopup:
             return
         Utilities.writelog('Custom-position dialog opened', ('', '\n', True))
@@ -654,18 +1910,20 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                        self.mousePositionRadiobutton, self.customPositionRadiobutton]:
             widget.configure(state='disabled')
 
+        keyboard.unregister_all_hotkeys()
+
         askPositionDialog = tk.Toplevel(self)
         askPositionDialog.title('')
-        askPositionDialog.geometry('+' + self.geometry().split('+', maxsplit=1)[1])
+        Utilities.child_geometry(askPositionDialog, self)
         askPositionDialog.resizable(False, False)
+        askPositionDialog.attributes('-topmost', STORAGE.Setting.isTopmost)
 
         askPositionDialog.grab_set()
         askPositionDialog.focus()
 
-        positionType = tk.StringVar(value='manual')
         positions = STORAGE.FIXED_POSITIONS
 
-        alldialogFrame = ttk.Frame(askPositionDialog)
+        alldialogFrame = tk.Frame(askPositionDialog)
         alldialogFrame.grid(row=3, column=3, padx=15, pady=(15, 0), ipadx=5, ipady=5)
         alldialogFrame.grid_columnconfigure(3, weight=1)
 
@@ -673,14 +1931,12 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         mainCustomPositionFrame.grid(row=3, column=3, ipadx=15, ipady=5, sticky='ew')
         mainCustomPositionFrame.grid_columnconfigure(3, weight=1)
 
-        choosePositionFrame = ttk.Frame(mainCustomPositionFrame)
+        choosePositionFrame = tk.Frame(mainCustomPositionFrame)
         choosePositionFrame.grid(row=3, column=3, pady=(5, 0))
 
-        choosePositionFrame_radiobutton = ttk.Radiobutton(choosePositionFrame, value='manual', variable=positionType,
-                                                          command=lambda: [xCustomPositionEntry.focus(),
-                                                                           update_text_on_return(),
-                                                                           choosePositionWithMouseButton.configure(
-                                                                               state='disabled')])
+        choosePositionFrame_radiobutton = ttk.Radiobutton(choosePositionFrame, value='manual',
+                                                          variable=self.positionType,
+                                                          command=lambda: bindradio_all())
         choosePositionFrame_radiobutton.grid(row=3, column=1)
 
         ttk.Label(choosePositionFrame, text='x=').grid(row=3, column=2, sticky='e')
@@ -692,32 +1948,89 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         yCustomPositionEntry.grid(row=3, column=5, sticky='w')
         ttk.Label(choosePositionFrame, text=',  y=', anchor='e').grid(row=3, column=4, sticky='e')
 
+        randomPositionCheckbutton = tk.Checkbutton(choosePositionFrame, text='Random position',
+                                                   variable=self.randomPositionVar, command=lambda: [[
+                _widget.configure(state='disabled' if self.randomPositionVar.get() else 'normal') for _widget in
+                (xCustomPositionEntry, yCustomPositionEntry)],
+                submitPositionButton.configure(state='normal' if self.randomPositionVar.get() else 'disabled')])
+        randomPositionCheckbutton.grid(row=5, column=1, columnspan=5)
+
+        for _i, _e in zip(positions, (xCustomPositionEntry, yCustomPositionEntry)):
+            _e.insert(0, _i)
+        xCustomPositionEntry.selection_range(0, 'end')
+
         ttk.Label(alldialogFrame, text='or').grid(row=5, column=3, pady=5)
 
         choosePositionFrame_withMouse = ttk.LabelFrame(alldialogFrame, text='Pick position', labelanchor='n')
         choosePositionFrame_withMouse.grid(row=7, column=3, ipadx=15, ipady=5, sticky='ew')
         choosePositionFrame_withMouse.grid_columnconfigure(3, weight=1)
 
-        _choosePositionFrame_withMouse = ttk.Frame(choosePositionFrame_withMouse)
+        _choosePositionFrame_withMouse = tk.Frame(choosePositionFrame_withMouse)
         _choosePositionFrame_withMouse.grid(row=3, column=3, pady=(5, 0))
 
         choosePositionFrame_withMouse_radiobutton = ttk.Radiobutton(_choosePositionFrame_withMouse, value='picker',
-                                                                    variable=positionType,
-                                                                    command=lambda: [askPositionDialog.focus(),
-                                                                                     showPositionsLabel.configure(
-                                                                                         text='Position: x/y=Custom'),
-                                                                                     choosePositionWithMouseButton.configure(
-                                                                                         state='normal'),
-                                                                                     submitPositionButton.configure(
-                                                                                         state='disabled')])
+                                                                    variable=self.positionType,
+                                                                    command=lambda: bindradio_all())
         choosePositionFrame_withMouse_radiobutton.grid(row=3, column=2, sticky='e')
 
         choosePositionWithMouseButton = ttk.Button(_choosePositionFrame_withMouse, text='Choose position',
                                                    command=lambda: choose_position_by_mouse(), state='disabled')
         choosePositionWithMouseButton.grid(row=3, column=3, ipadx=5)
 
-        submitPositionFrame = ttk.Frame(alldialogFrame)
-        submitPositionFrame.grid(row=9, column=3, sticky='sew', pady=(20, 5))
+        ##
+        locatefile = STORAGE.LOCATE_SCREEN[1].strip()
+        ttk.Label(alldialogFrame, text='or').grid(row=9, column=3, pady=5)
+
+        choosePositionFrame_withLocate = ttk.LabelFrame(alldialogFrame, text='Locate on screen', labelanchor='n')
+        choosePositionFrame_withLocate.grid(row=11, column=3, ipadx=15, ipady=5, sticky='ew')
+        choosePositionFrame_withLocate.grid_columnconfigure(3, weight=1)
+
+        _choosePositionFrame_withLocate = tk.Frame(choosePositionFrame_withLocate)
+        _choosePositionFrame_withLocate.grid(row=3, column=3, pady=(5, 0))
+
+        choosePositionFrame_withLocate_radiobutton = ttk.Radiobutton(_choosePositionFrame_withLocate, value='locate',
+                                                                     variable=self.positionType,
+                                                                     command=lambda: bindradio_all())
+        choosePositionFrame_withLocate_radiobutton.grid(row=3, column=2, sticky='e')
+
+        choosePositionwithLocateButton = ttk.Button(_choosePositionFrame_withLocate, text='Choose image',
+                                                    command=lambda: choose_image_to_locate(), state='disabled')
+        choosePositionwithLocateButton.grid(row=3, column=3, ipadx=5)
+
+        def choose_image_to_locate():
+            nonlocal locatefile
+            old_locatefile = locatefile
+            locatefile = filedialog.askopenfilename(title="Image to locate",
+                                                    filetypes=(("PNG files", "*.png"), ("JPG files", "*.jpg")),
+                                                    parent=askPositionDialog)
+            if not locatefile:
+                return
+            elif not pyautogui.onScreen(*Image.open(locatefile).size):
+                messagebox.showwarning('Unable to process',
+                                       f'Your image resolution is too high.\n\nPath: {locatefile}\nImage size: {"x".join(map(str, Image.open(locatefile).size))}\nMaximum size: {"x".join(map(str, pyautogui.size()))}')
+                locatefile = old_locatefile
+                return
+            showLocatePathLabel.configure(text='Path: {}'.format(
+                (lambda x: '...' + x[0][-12 if len(x[0]) > 12 else 0:] + x[1])(
+                    os.path.splitext(os.path.basename(locatefile)))))
+            submitPositionButton.configure(state='normal')
+
+        showLocatePathLabel = tk.Label(choosePositionFrame_withLocate, text='Path: {}'.format(
+            (lambda x: '...' + x[0][-12 if len(x[0]) > 12 else 0:] + x[1])(
+                os.path.splitext(os.path.basename(STORAGE.LOCATE_SCREEN[1]))) if STORAGE.LOCATE_SCREEN[
+                1] else f'(.png, .jpg)'), anchor='e')
+        showLocatePathLabel.grid(row=5, column=3)
+
+        moveLocateValue = tk.IntVar()
+        moveLocateCheckbutton = tk.Checkbutton(choosePositionFrame_withLocate, text='Move mouse on detection',
+                                               variable=moveLocateValue)
+        moveLocateCheckbutton.grid(row=7, column=3)
+        moveLocateCheckbutton.select() if STORAGE.LOCATE_SCREEN[0] else None
+        moveLocateCheckbutton.configure(state='disabled')
+        ##
+
+        submitPositionFrame = tk.Frame(alldialogFrame)
+        submitPositionFrame.grid(row=13, column=3, sticky='sew', pady=(20, 5))
         submitPositionFrame.grid_columnconfigure(3, weight=1)
 
         showPositionsLabel = ttk.Label(submitPositionFrame, text='Position: x=None; y=None')
@@ -736,8 +2049,8 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
         def update_text_on_return():
             nonlocal positions
-            pos = [i if i.strip() != '' else 'None' for i in (xCustomPositionEntry.get(), yCustomPositionEntry.get())]
-            positions = pos[0], pos[1]
+            pos = [i if i.strip() else 'None' for i in (xCustomPositionEntry.get(), yCustomPositionEntry.get())]
+            positions = tuple([int(c) for c in pos if c.isdigit()])
             showPositionsLabel.configure(
                 text=f'Position: x={pos[0][:4]}{"..." if len(pos[0]) > 4 else ""}; y={pos[1][:4]}{"..." if len(pos[1]) > 4 else ""}')
 
@@ -745,11 +2058,11 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             if not event:
                 askPositionDialog.focus()
             submitPositionButton.configure(state='disabled')
-            if positionType.get().strip() != '':
+            if self.positionType.get().strip() != '':
                 if xCustomPositionEntry.get().isdigit() and yCustomPositionEntry.get().isdigit():
                     submitPositionButton.configure(state='normal')
 
-            if event and positionType.get() == 'manual':
+            if event and self.positionType.get() == 'manual':
                 update_text_on_return()
 
         def choose_position_by_mouse():
@@ -772,8 +2085,8 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
             mousex, mousey = 0, 0
 
-            displaying = tk.Frame(transparent_layer, bg='yellow')
-            displayPosition = tk.Label(displaying, text=f'x={mousex}; y={mousey}', bg='yellow',
+            displaying = tk.Frame(transparent_layer, background='yellow')
+            displayPosition = tk.Label(displaying, text=f'x={mousex}; y={mousey}', background='yellow',
                                        font=('Calibri', 11, 'bold'))
             displayPosition.grid(row=3, column=3, padx=15)
             displaying.grid_columnconfigure(3, weight=1)
@@ -791,14 +2104,61 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
                 transparent_layer.update()
 
+        def bindradio_all():
+            nonlocal positions
+            pos = tuple(map(str, positions))
+            for _widget in [choosePositionFrame_radiobutton, choosePositionFrame_withMouse_radiobutton,
+                            choosePositionFrame_withLocate_radiobutton]:
+                if _widget.cget('value') == self.positionType.get():
+                    _widgetdict = {
+                        'manual': [randomPositionCheckbutton, xCustomPositionEntry, yCustomPositionEntry],
+                        'picker': [choosePositionWithMouseButton],
+                        'locate': [choosePositionwithLocateButton, moveLocateCheckbutton]
+                    }
+                    for _key in _widgetdict.keys():
+                        askPositionDialog.focus()
+                        if _key == 'manual':
+                            askPositionDialog.after(10, xCustomPositionEntry.focus)
+                            pos = tuple([c.get() if c.get().isdigit() else str(positions[i]) for i, c in
+                                         enumerate((xCustomPositionEntry, yCustomPositionEntry))])
+                        elif _key == 'picker':
+                            submitPositionButton.configure(state='normal' if all(
+                                0 <= c < s for c, s in zip(positions, pyautogui.size())) else 'disabled')
+                        elif _key == 'locate':
+                            submitPositionButton.configure(state='normal' if locatefile else 'disabled')
+
+                        for __widget in _widgetdict[_key]:
+                            if self.positionType.get().strip() == 'manual' and self.randomPositionVar.get() and __widget in [
+                                xCustomPositionEntry, yCustomPositionEntry]:
+                                __widget.configure(state='disabled')
+                                continue
+                            __widget.configure(
+                                state='normal' if _key == self.positionType.get().strip() else 'disabled')
+                    break
+
+            positions = tuple(map(int, pos))
+            if self.positionType.get() != 'locate':
+                showPositionsLabel.configure(
+                    text=f'Position: x={pos[0][:4]}{"..." if len(pos[0]) > 4 else ""}; y={pos[1][:4]}{"..." if len(pos[1]) > 4 else ""}')
+            else:
+                showPositionsLabel.configure(text='Position: x/y=locate_image')
+
         def submit_position():
-            if not pyautogui.onScreen(*map(int, positions)):
-                messagebox.showwarning('Warning', 'Your chosen position is outside the screen.',
+            if self.positionType.get() != 'locate' and not pyautogui.onScreen(*map(int, positions)):
+                messagebox.showwarning('Warning', 'Your chosen position is outside of the screen.',
                                        parent=askPositionDialog)
                 return
             STORAGE.FIXED_POSITIONS = tuple(map(int, positions))
-            self.customPositionRadiobutton.configure(text=f'Custom ({",".join(map(str, positions))})')
+            if self.positionType.get() == 'locate':
+                STORAGE.LOCATE_SCREEN = (True if moveLocateValue.get() else False, locatefile)
+                self.customPositionRadiobutton.configure(text=f'Custom (Locate)')
+                self.showInterval.configure(
+                    text=f'Interval/l: ~{":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}')
+            else:
+                self.customPositionRadiobutton.configure(text=f'Custom ({", ".join(map(str, positions))})')
             askPositionDialog.destroy()
+            Utilities.add_trigger_hotkey()
+            Utilities.add_default_hotkeys()
 
             if not fromSetting:
                 for _widget in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox,
@@ -816,9 +2176,12 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         xCustomPositionEntry.bind('<KeyRelease>', checkSubmitable)
         yCustomPositionEntry.bind('<KeyRelease>', checkSubmitable)
         xCustomPositionEntry.focus()
+        bindradio_all()
 
         def on_exit():
             askPositionDialog.destroy()
+            self.positionVar.set(STORAGE.Garbage.old_positionVar[0])
+            STORAGE.Garbage.trace_old_positionVar(self.positionVar.get())
             if not fromSetting:
                 for _widget in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox,
                                 self.intervalMillisecondCombobox, self.mouseButtonOptionCombobox,
@@ -873,69 +2236,72 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                 return False
         return True
 
-    def bindChosenAll(self, event):
+    def bindChosenAll(self, event: tk.Event | bool = False):
         self.intervals = [
             str(int(i.get()) if i.get().isdigit() else i.get()).zfill(
                 2 if self.intervalWidgets.index(i) != len(self.intervalWidgets) - 1 else 3) for i in
             self.intervalWidgets]
-        if str(event.type) != '3':
+        if event and str(event.type) != '3':
             event.widget.master.focus()
             event.widget.set(self.intervals[self.intervalWidgets.index(event.widget)])
         self.showInterval.configure(
-            text=f'Interval: {":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}')
+            text=f'Interval{"/l: ~" if self.positionType.get() == "locate" and self.positionVar.get() == "custom" else ": "}{":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}')
         Utilities.writelog(
             f'Set the interval to: {":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}',
             ('', '\n', True))
 
-    # class: Click options
-
 
 def background_tasks():
     Utilities.writelog('Background tasks started', ('', '\n', True))
-    while STORAGE.RUNNING and root.winfo_exists():
+    while True:
+        if not STORAGE.RUNNING:
+            continue
+
+        if STORAGE.Garbage.root_geometry is None:
+            STORAGE.Garbage.root_geometry = root.geometry()
         if root.positionVar.get() == 'mouse':
             root.mousePositionRadiobutton.configure(text='Current ({0}, {1})'.format(*pyautogui.position()))
         else:
             root.mousePositionRadiobutton.configure(text='Current (0, 0)')
 
-        if keyboard.is_pressed('esc') or keyboard.is_pressed('enter'):
-            try:
-                root.nametowidget(root.grab_current()).focus() if root.grab_current() else root.focus()
-            except KeyError as backgroundKeyError:
-                Utilities.writelog(f'{type(backgroundKeyError).__name__} {backgroundKeyError}',
-                                   built_content=('', '\n', True), logType='ERROR')
+        if not STORAGE.Garbage.isTerminalOn and (keyboard.is_pressed('esc') or keyboard.is_pressed('enter')):
+            if not STORAGE.Garbage.isMasterFocus:
+                try:
+                    root.focus_get().master.focus()
+                    STORAGE.Garbage.isMasterFocus = True
+                except (AttributeError, KeyError):
+                    STORAGE.Garbage.isMasterFocus = False
             if root.limitedRepeatSpinbox.get().strip() == '':
                 root.limitedRepeatSpinbox.set(1)
+                root.spinTimeLabel.configure(text=f'time{"s" if root.spinTime > 1 else ""}')
+        else:
+            STORAGE.Garbage.isMasterFocus = False
         root.update()
 
-        print('background thingy')
 
-    print('ended?')
-    Utilities.writelog(f'Successfully terminated all running tasks, {__project__} {__version__} was fully closed',
-                       ('', '\n}\n', True))
-    return
-
-
+# noinspection PyUnresolvedReferences
 def on_window_exit():
-    if keyboard.is_pressed('shift'):
+    if keyboard.is_pressed('ctrl+shift+alt'):
+        Utilities.start(restart=True)
+        return
+    if keyboard.is_pressed('shift') and not keyboard.is_pressed('ctrl') and not STORAGE.Extension.MouseRecorder.ON:
+        STORAGE.BACKGROUND = True
         root.withdraw()
         return
     if not keyboard.is_pressed('ctrl') and STORAGE.Setting.isAutoPopup:
         if not messagebox.askyesno(f'Closing {__project__}', f'Are you sure to close {__project__} {__version__}?'):
             return
     save_data()
+
     root.destroy()
     STORAGE.RUNNING = False
 
-    Utilities.writelog(f'Closed {__project__} {__version__}. Terminating the background tasks..', ('', '\n', True))
+    Utilities.writelog(f'Closed {__project__} {__version__}', ('', '\n}\n', True))
+    backgroundThread.join(0)
+    print(f'{__project__} {__version__} was closed.')
+    os._exit(0)
 
 
-root = Application()
-threading.Thread(target=background_tasks).start()
-
-keyboard.add_hotkey(STORAGE.Setting.trigger_hotkey,
-                    lambda: root.stopClicking() if STORAGE.CLICKING else root.startClicking())
-Utilities.add_default_hotkeys()
-
-root.protocol('WM_DELETE_WINDOW', on_window_exit)
-root.mainloop()
+root: tk.Tk | Application | None = None
+backgroundThread: threading.Thread | None = None
+Utilities.start()
