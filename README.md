@@ -4,7 +4,7 @@
   <p>JetClicker is a fast, reliable, and free auto-clicker application.</p>
   <hr>
   
-  ![Static Badge](https://img.shields.io/badge/0.3.1-blue?style=for-the-badge&label=Version)
+  ![Static Badge](https://img.shields.io/badge/0.5.1-blue?style=for-the-badge&label=Version)
   ![Static Badge](https://img.shields.io/badge/beta-yellow?style=for-the-badge&label=Status)
   ![Static Badge](https://img.shields.io/badge/MIT-green?style=for-the-badge&label=license&link=https%3A%2F%2Fgithub.com%2FItsHungg%2FJetClicker%2Fblob%2Fc9e6166835c47703e5da397176f03a7b247d7f8e%2FLICENSE.txt)
 
@@ -53,16 +53,17 @@ pip install <library-name>
 
 ## Information
 Project name: **JetClicker**<br>
-Last checked: `v1.3.0`<br>
+Last checked: `v0.5.1`<br>
 
 ### Libraries
-- pip:  `23.3.2`<br>
+- pip:  `24.0`<br>
 - tkinter: `8.6`
 - Pillow (PIL): `10.0.0`
 - tkinter-tooltip (tktooltip): `2.2.0`
 - PyAutoGUI (pyautogui): `0.9.54`
 - keyboard: `0.13.5`
 - mouse: `0.7.1`
+- speech_recognition: `3.10.0`
 ### Packages
 - pyinstaller: `5.13.0`
 - Inno Setup: `6.2.2`
