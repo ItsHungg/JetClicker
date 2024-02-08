@@ -6,14 +6,28 @@ All notable changes to this project will be documented in this file.<br>
 **Format:** `[x.y.z] - mm/dd/yyyy`
 <hr>
 
-## [0.3.1] - 01/21/2023
+## [0.5.1] - 02/08/2024
+### Added
+- Added voice commands, customized in settings
+- Added more logs events
+- Added app icons (on the title bar and task bar)
+- Added option to clear the recorded events of the mouse recorder
+### Changed
+- Changed the format of the elapsed time label in the Credits & Info page
+- Changed the logs formatting when started clicking
+- Optimized the code
+### Fixed
+- Fixed some minor bugs
+- Fixed minor formatting mistakes in the log files
+
+## [0.3.1] - 01/21/2024
 ### Added
 - Added 2 default extensions (MouseRecorder, CPS-Counter)
 - Added 2 more statistics related to scrolling
 - Added a terminal/console
 - Added advanced settings category in settings
 - Added an OS filter
-- Added click on image detection feature
+- Added click-on image detection feature
 - Added extensions and plugins
 - Added more hotkeys
 - Added random intervals feature
@@ -21,12 +35,12 @@ All notable changes to this project will be documented in this file.<br>
 - Added scrolling type
 - Added the click area feature
 ### Changed
-- A messagebox will be displayed when the user reset all data
+- A messagebox will be displayed when the user resets all data
 - Changed the default trigger hotkey to `Ctrl`+`Q`
 - Changed the indents of `data.json` from 2 to 4
 - Improved the background tasks system
 - Optimized & Revamped many features
-- Saving all the settings takees approx. 1sec before closing
+- Saving all the settings takes approx. 1sec before closing
 - The interval must be longer than 0s in all cases
 - The user can now refresh the GUI
 ### Removed
