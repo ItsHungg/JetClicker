@@ -31,7 +31,7 @@ pip install <library-name>
 #### 1. Is JetClicker safe?
 > Based on the code, I can be confident that JetClicker is safe.
 #### 2. Antivirus software detected JetClicker as a virus.
-> JetClicker uses NSIS to create the installer and PyInstaller to create the `.exe` file. They are all open-source.<br>You can check it [here](https://github.com/kichik/nsis) (NSIS) and [here](https://github.com/pyinstaller/pyinstaller) (PyInstaller). I am confident that JetClicker is completely safe and free to use.
+> JetClicker uses Inno Setup to create the installer and PyInstaller to create the `.exe` file. They are all open-source.<br>You can check it [here](https://github.com/jrsoftware/issrc) (Inno Setup) and [here](https://github.com/pyinstaller/pyinstaller) (PyInstaller). I am confident that JetClicker is completely safe and free to use.
 #### 3. Which method should I use to install, zipped file or installer (not available yet)?
 > I recommend you use an installer to install JetClicker because it's more convenient and you won't need to install any Python library to use.
 #### 4. Does JetClicker support MacOS or Linux?
@@ -53,7 +53,7 @@ Last checked: `v1.3.0`<br>
 - mouse: `0.7.1`
 ### Packages
 - pyinstaller: `5.13.0`
-- NSIS: `3.08`
+- Inno Setup: `6.2.2`
 
 <hr>
 
