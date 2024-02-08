@@ -47,7 +47,17 @@
                 0,
                 0
             ]
-        ]
+        ],
+        "voice-commands": {
+            "is.voice-command": true,
+            "start-commands": [
+                "click",
+                "start"
+            ],
+            "stop-commands": [
+                "stop"
+            ]
+        }
     },
     {
         "category": "extensions",
