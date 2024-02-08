@@ -4,6 +4,7 @@ import tkinter as tk
 from itertools import permutations, chain
 from PIL import Image
 from tktooltip import ToolTip
+import speech_recognition as sr
 import pyautogui
 import threading
 import keyboard
@@ -16,7 +17,7 @@ import platform
 import os
 
 __project__ = 'JetClicker'
-__version__ = '0.3.1'
+__version__ = '0.5.1'
 
 __author__ = 'Hung'
 __runtime__ = time.strftime('%T')
@@ -111,6 +112,9 @@ class Utilities:
         STORAGE.Setting.wheelSize = 100
         STORAGE.Setting.confidence = 0.8
         STORAGE.Setting.transparency = 0.5
+        STORAGE.Setting.isVoiceCommand = True
+        STORAGE.Setting.startVoiceCommands = ['click', 'start']
+        STORAGE.Setting.stopVoiceCommands = ['stop']
 
         STORAGE.Extension.MouseRecorder.recordTriggerHotkey = 'f5'
         STORAGE.Extension.MouseRecorder.playbackTriggerHotkey = 'f6'
@@ -127,6 +131,7 @@ class Utilities:
 
         if message and messagebox.askyesno(f'Restart {__project__} {__version__}',
                                            f'Resetted all data. {__project__} needs to be refreshed to see the changes.\nWould you like to refresh now?'):
+            Utilities.writelog('Resetted all data', ('', '\n', True))
             Utilities.start(restart=True)
 
     @staticmethod
@@ -147,6 +152,7 @@ class Utilities:
             Utilities.add_trigger_hotkey()
             Utilities.add_default_hotkeys()
             root.geometry(STORAGE.Garbage.root_geometry.split('+')[0])
+            Utilities.writelog('Refreshed the GUI', ('', '\n', True))
             return
 
         root = Application()
@@ -163,9 +169,13 @@ class Utilities:
         for filename in [f for f in os.listdir(r'data\plugins') if f.endswith('.txt')]:
             with open('data\\plugins\\' + filename, 'r') as filerun:
                 try:
+                    Utilities.writelog(f'Executing plugin: {filename}', ('', '\n', True))
                     exec(filerun.read())
+                    Utilities.writelog(f'Executed plugin: {filename}', ('', '\n', True))
                 except Exception as plugin_error:
                     messagebox.showerror(f'Plugin: {filename}', f'[{type(plugin_error).__name__}]: {plugin_error}')
+                    Utilities.writelog(f'Error in {filename} - [{type(plugin_error).__name__}]: {plugin_error}',
+                                       ('', '\n', True))
 
         backgroundThread = threading.Thread(target=background_tasks)
         backgroundThread.start()
@@ -173,13 +183,50 @@ class Utilities:
         STORAGE.RUNNING = True
 
         root.protocol('WM_DELETE_WINDOW', on_window_exit)
+
+        Utilities.writelog(f'All functions are initialized. Successfully launched {__project__} {__version__}',
+                           ('', '\n', True))
         root.mainloop()
+
+    @staticmethod
+    def listen_to_voice(r):
+        def callback(recog: sr.Recognizer, audio):
+            if not STORAGE.Setting.isVoiceCommand:
+                return
+            try:
+                print('voice detected...')
+                call = recog.recognize_google(audio, language='en', show_all=True)
+                print(call)
+                if call:
+                    cms = [i['transcript'].lower() for i in call['alternative']]
+                    if any(q in i for i in cms for q in STORAGE.Setting.startVoiceCommands):
+                        r.startClicking()
+                    if any(q in i for i in cms for q in STORAGE.Setting.stopVoiceCommands):
+                        r.stopClicking()
+            except sr.exceptions.RequestError:
+                if messagebox.askyesno(f'Connection error',
+                                       f'Unable to make a request to Google Speech Recognition service. Would you like to retry?',
+                                       icon='warning'):
+                    callback(recog, audio)
+            return
+
+        recognizer = sr.Recognizer()
+        mic = sr.Microphone()
+
+        with mic as source:
+            recognizer.adjust_for_ambient_noise(source)
+
+        return recognizer.listen_in_background(mic, callback)
 
     @staticmethod
     def insert_disabledtextwidget(widget, content, index='end'):
         widget.configure(state='normal')
         widget.insert(index, content)
         widget.configure(state='disabled')
+
+    @staticmethod
+    def set_window_icon(window: tk.Tk | tk.Toplevel, path: str = 'assets\\icons\\logo.ico'):
+        window.iconbitmap(path)
 
     class Function:
         @staticmethod
@@ -221,17 +268,22 @@ class Utilities:
         class Custom:
             @staticmethod
             def displayFileDialog(filename, folder, master):
+                Utilities.writelog(f'Displaying {filename} with FileReader', ('', '\n', True))
                 try:
+                    Utilities.writelog(f'Opening {filename}..', ('', '\n', True))
                     with open(folder + '\\' + filename, 'r') as _file:
                         content = _file.read()
+                    Utilities.writelog(f'Successfully collected contents of {filename}', ('', '\n', True))
                 except FileNotFoundError:
                     messagebox.showerror('FileNotFound',
                                          f'Something went wrong while open {filename}\nMake sure that the file still exists.')
+                    Utilities.writelog(f'Couldn\'t find \"{filename}\" in the directory', ('', '\n', True))
                     return False
 
                 file_reader_toplevel = tk.Toplevel(master)
                 file_reader_toplevel.title(f'{filename} - FileReader')
                 file_reader_toplevel.grab_set()
+                Utilities.set_window_icon(file_reader_toplevel)
 
                 text_widget = tk.Text(file_reader_toplevel, wrap='word', state='disabled')
                 text_widget.grid(row=3, column=3, sticky='nsew')
@@ -240,6 +292,7 @@ class Utilities:
                 _scrollbar = tk.Scrollbar(file_reader_toplevel, orient='vertical', command=text_widget.yview)
                 _scrollbar.grid(row=3, column=4, sticky='ns')
                 text_widget.configure(yscrollcommand=_scrollbar.set)
+                Utilities.writelog(f'Displayed contents of {filename}', ('', '\n', True))
 
                 return True
 
@@ -248,10 +301,13 @@ class Utilities:
                 filelist = [f for f in os.listdir(directory_path) if f.endswith('.txt') and f not in storage]
                 if not filelist:
                     return
+                Utilities.writelog(f'Detected {len(filelist)} new plugins: {", ".join(filelist)}', ('', '\n', True),
+                                   logType='WARNING')
                 master.withdraw()
                 newpluginwarningWindow = tk.Toplevel(master)
                 newpluginwarningWindow.title('Warning')
                 newpluginwarningWindow.grid_columnconfigure(3, weight=1)
+                Utilities.set_window_icon(newpluginwarningWindow)
 
                 tk.Label(newpluginwarningWindow, text='WARNING', foreground='red', font=('Calibri', 20, 'bold')).grid(
                     row=3, column=3)
@@ -267,12 +323,22 @@ class Utilities:
                 # noinspection PyUnresolvedReferences
                 def closeapp():
                     root.destroy()
+                    Utilities.writelog(f'Closed {__project__} {__version__}', ('', '\n}\n', True))
                     print('Closed.')
                     os._exit(0)
 
-                def proceed():
+                def proceed(save=True):
+                    if save:
+                        storage.extend(filelist)
+                        Utilities.writelog(f'Warning closed by user', ('', '\n', True))
+                    else:
+                        if not messagebox.askyesno(
+                                'Warning',
+                                'Make sure all your plugins are safe to run. Closing this window will execute the plugins.\n\nDo you want to proceed?',
+                                icon='warning', parent=newpluginwarningWindow):
+                            return
+                        Utilities.writelog(f'Warning ignored by user', ('', '\n', True))
                     newpluginwarningWindow.destroy()
-                    storage.extend(filelist)
 
                 ttk.Button(warningActionFrame, text='Continue', command=proceed, width=10).grid(row=3, column=3)
                 ttk.Button(warningActionFrame, text='Exit', command=closeapp, width=10).grid(row=3, column=5)
@@ -291,11 +357,7 @@ class Utilities:
                                                                    newpluginwarningWindow)
 
                 newpluginListbox.bind('<Double-1>', on_select)
-                newpluginwarningWindow.protocol('WM_DELETE_WINDOW',
-                                                lambda: newpluginwarningWindow.destroy() if messagebox.askyesno(
-                                                    'Warning',
-                                                    'Make sure all your plugins are safe to run. Closing this window will execute the plugins.\n\nDo you want to proceed?',
-                                                    icon='warning', parent=newpluginwarningWindow) else None)
+                newpluginwarningWindow.protocol('WM_DELETE_WINDOW', lambda: proceed(save=False))
                 if block:
                     newpluginwarningWindow.wait_window()
 
@@ -307,11 +369,13 @@ class Utilities:
                     master = root
                     root.menuFrame.grid_forget()
                 STORAGE.Garbage.isTerminalOn = True
+                Utilities.writelog('Opened terminal/console window', ('', '\n', True))
 
                 terminalWindow = tk.Toplevel(master)
                 terminalWindow.title(f'Terminal: {__project__} {__version__} [BETA]')
                 terminalWindow.resizable(False, False)
                 terminalWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
+                Utilities.set_window_icon(terminalWindow)
                 mainCommandFrame = tk.Frame(terminalWindow)
                 mainCommandFrame.grid(row=3, column=3, padx=15, pady=5)
 
@@ -339,12 +403,14 @@ class Utilities:
                 def closeTerminal():
                     terminalWindow.destroy()
                     STORAGE.Garbage.isTerminalOn = False
+                    Utilities.writelog('Closed terminal/console window', ('', '\n', True))
 
                 terminalWindow.protocol('WM_DELETE_WINDOW', closeTerminal)
                 commandEntry.focus()
 
             @staticmethod
             def processCommand(command: str, textbox: tk.Text, focus_entry=None):
+                Utilities.writelog(f'Command sent: {command}', ('', '\n', True))
                 return_text = '\n'
                 try:
                     if not command:
@@ -382,7 +448,8 @@ class Utilities:
                     return_text = f'[{type(command_error).__name__}]: {command_error}\n' + return_text
                 textbox.after(10,
                               lambda: [Utilities.insert_disabledtextwidget(textbox, f'>>> {command}\n' + return_text),
-                                       textbox.yview('end')])
+                                       textbox.yview('end'),
+                                       Utilities.writelog(f'Console returned: {return_text}', ('', '\n', True))])
                 if focus_entry is not None:
                     focus_entry['values'] = list({i: None for i in [command] + list(focus_entry['values'])})[:100]
                     focus_entry.set('')
@@ -391,7 +458,9 @@ class Utilities:
 
 with open(r'data\data.json', 'r') as read_data:
     try:
+        Utilities.writelog('Accessing data.json..', ('', '\n', True))
         DATA = json.load(read_data)
+        Utilities.writelog('Successfully accessed data.json\'s contents', ('', '\n', True))
     except json.decoder.JSONDecodeError as error:
         messagebox.showerror('Decode Error',
                              'Couldn\'t read data.json file.\nPlease check the data file and try again.')
@@ -427,6 +496,7 @@ class Storage:
         root_geometry: str = None
         clickButton = 'Left'
         clickType = 'Single'
+        last_isVoiceCommand = DATA[2]['voice-commands']['is.voice-command']
 
         @staticmethod
         def trace_old_positionVar(value):
@@ -455,6 +525,10 @@ class Storage:
         wheelSize = DATA[2]['wheelsize']
         confidence = DATA[2]['confidence']
         transparency = DATA[2]['transparency']
+
+        isVoiceCommand = DATA[2]['voice-commands']['is.voice-command']
+        startVoiceCommands = DATA[2]['voice-commands']['start-commands']
+        stopVoiceCommands = DATA[2]['voice-commands']['stop-commands']
 
     class Extension:
         ON: bool | tk.Toplevel = False
@@ -511,7 +585,12 @@ def save_data(data: list | dict = None):
                 'wheelsize': STORAGE.Setting.wheelSize,
                 'confidence': STORAGE.Setting.confidence,
                 'transparency': STORAGE.Setting.transparency,
-                'clickArea': [STORAGE.Setting.clickArea, STORAGE.Garbage.tk_clickArea]
+                'clickArea': [STORAGE.Setting.clickArea, STORAGE.Garbage.tk_clickArea],
+                'voice-commands': {
+                    'is.voice-command': STORAGE.Setting.isVoiceCommand,
+                    'start-commands': STORAGE.Setting.startVoiceCommands,
+                    'stop-commands': STORAGE.Setting.stopVoiceCommands
+                }
             },
             {
                 'category': 'extensions',
@@ -596,6 +675,7 @@ class Application(tk.Tk):
         self.title(f'{__project__} {__version__}')
         self.resizable(False, False)
         self.attributes('-topmost', STORAGE.Setting.isTopmost)
+        self.after(250, lambda: Utilities.set_window_icon(self))
 
         # MAIN FRAME
         self.mainFrame = tk.Frame(self)
@@ -669,8 +749,9 @@ Total scrolls: {STORAGE.General.total_scroll}
 --- MISCELLANEOUS ---
 Open time: {__runtime__}
 Open date: {__rundate__}
-Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog('Closed Credits & Info page',
-                                                                                 ('', '\n', True))])
+Time elapsed: {Utilities.Function.seconds_to_formatted(time.perf_counter() - __startFlag__, with_hour=True)}'''),
+                                                     Utilities.writelog('Closed Credits & Info page',
+                                                                        ('', '\n', True))])
         self.infoButton.grid(row=21, column=3, ipady=7, sticky='sew')
         self.terminalImage = tk.PhotoImage(file=r'assets\textures\terminal.png').subsample(23, 23)
 
@@ -866,6 +947,9 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             messagebox.showwarning('Invalid interval', 'Make sure the click interval is bigger than 0s.')
             return
 
+        clickType = self.clickTypeOptionCombobox.get().lower().strip()
+        mouseButton = self.mouseButtonOptionCombobox.get().lower().strip()
+
         self.startClickButton.configure(state='disabled')
         self.stopClickButton.configure(state='normal')
         self.extensionsButton.configure(state='disabled', cursor='')
@@ -878,8 +962,12 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                        self.mousePositionRadiobutton, self.customPositionRadiobutton]:
             widget.configure(state='disabled')
         STORAGE.CLICKING = True
+
+        interval_log = f'Randomized from {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[1])} to {Utilities.Function.seconds_to_formatted(STORAGE.Setting.isRandomIntervalList[2])}' if \
+            STORAGE.Setting.isRandomIntervalList[
+                0] else f'{":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}'
         Utilities.writelog(
-            f'CLICKING STARTED\n\tinterval: {":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}\n\tbutton: {self.mouseButtonOptionCombobox.get().lower()}\n\ttype: {self.clickTypeOptionCombobox.get().lower()}\n\trepeat: {self.repeatVar.get()}\n\tposition: {self.positionVar.get()}{f" ({STORAGE.FIXED_POSITIONS[0]}, {STORAGE.FIXED_POSITIONS[1]})" if self.positionVar.get() == "custom" else ""}',
+            f'CLICKING STARTED\n\tinterval: {interval_log}\n\tbutton: {"middle" if clickType == "scroll" else mouseButton}\n\ttype: {clickType}\n\trepeat: {f"limited ({self.limitedRepeatSpinbox.get()})" if self.repeatVar.get() == "limited" else self.repeatVar.get()}\n\tposition: {self.positionVar.get() if self.positionVar.get() == "mouse" else "randomized" if self.randomPositionVar.get() else f"custom ({STORAGE.FIXED_POSITIONS[0]}, {STORAGE.FIXED_POSITIONS[1]})"}\n\tarea: {f"{STORAGE.Setting.clickArea[1:3]}, {STORAGE.Setting.clickArea[3:]}" if STORAGE.Setting.clickArea[0] else "fullscreen"}',
             ('', '\n', True))
         print('started')
 
@@ -900,9 +988,6 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                     0] else [random.randint(0, c) for c in pyautogui.size()]
                 pyautogui.moveTo(*pos)
 
-            clickType = self.clickTypeOptionCombobox.get().lower().strip()
-            mouseButton = self.mouseButtonOptionCombobox.get().lower().strip()
-
             if clickType == 'scroll':
                 pyautogui.scroll(STORAGE.Setting.wheelSize if mouseButton == 'up' else -STORAGE.Setting.wheelSize)
                 STORAGE.General.total_scroll += 1
@@ -912,7 +997,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                 clicks=3 if clickType == 'triple' else 2 if clickType == 'double' else 1)
                 STORAGE.General.total_clicks += 1
                 STORAGE.General.current_click += 1
-            print('clicked')
+            # print('clicked')
 
         def runClicks():
             nonlocal sleepTime
@@ -928,7 +1013,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                     self.stopClicking()
                     break
                 if not STORAGE.CLICKING:
-                    self.stopClicking()
+                    self.stopClicking(broadcast=False)
                     break
                 try:
                     flag = time.perf_counter()
@@ -976,13 +1061,12 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                     self.stopClicking()
                     Utilities.add_trigger_hotkey()
                     Utilities.writelog('Fail-safe triggered. Clicking progress stopped', ('', '\n', True))
-
                     break
                 repeatTime -= 1
 
         threading.Thread(target=runClicks).start()
 
-    def stopClicking(self):
+    def stopClicking(self, broadcast=True):
         self.startClickButton.configure(state='normal')
         self.stopClickButton.configure(state='disabled')
         self.extensionsButton.configure(state='normal', cursor='hand2')
@@ -996,7 +1080,8 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                        self.mousePositionRadiobutton, self.customPositionRadiobutton]:
             widget.configure(state='readonly' if widget in [self.clickTypeOptionCombobox,
                                                             self.mouseButtonOptionCombobox] else 'normal')
-        Utilities.writelog(f'CLICKING STOPPED', ('', '\n', True))
+        if broadcast:
+            Utilities.writelog(f'CLICKING STOPPED', ('', '\n', True))
         print('stopped')
 
     # class: menu
@@ -1007,6 +1092,8 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
     # class: settings
     def settings(self):
+        if STORAGE.CLICKING:
+            return
         if isinstance(STORAGE.Setting.ON, tk.Toplevel):
             STORAGE.Setting.ON.lift()
             return
@@ -1025,6 +1112,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         settingWindow.title('Settings')
         settingWindow.resizable(False, False)
         settingWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
+        Utilities.set_window_icon(settingWindow)
 
         settingWindow.geometry(f'+{self.winfo_x() + self.winfo_width() + 10}+{self.winfo_y()}')
         self.bind('<Configure>', lambda _: settingWindow.geometry(
@@ -1066,6 +1154,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             Utilities.child_geometry(askRandomIntervalDialog, self)
             askRandomIntervalDialog.resizable(False, False)
             askRandomIntervalDialog.attributes('-topmost', STORAGE.Setting.isTopmost)
+            Utilities.set_window_icon(askRandomIntervalDialog)
 
             askRandomIntervalDialog.grab_set()
             askRandomIntervalDialog.focus()
@@ -1130,7 +1219,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                     else:
                         return
                 askRandomIntervalDialog.destroy()
-                STORAGE.Setting.isRandomIntervalList[0] = True if randomIntervalValue.get() else False
+                STORAGE.Setting.isRandomIntervalList[0] = bool(randomIntervalValue.get())
                 Utilities.add_default_hotkeys()
                 Utilities.add_trigger_hotkey()
 
@@ -1176,7 +1265,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         click_area_label.grid(row=3, column=3, sticky='w', padx=(0, 5))
         ToolTip(click_area_label, msg='Define a specific area on the screen where the mouse actions are made.')
         clickAreaCombobox = ttk.Combobox(clickAreaFrame, values=['Fullscreen', 'Custom'], state='readonly', width=9)
-        clickAreaCombobox.current(1 if STORAGE.Setting.clickArea[0] else 0)
+        clickAreaCombobox.current(int(STORAGE.Setting.clickArea[0]))
         clickAreaCombobox.grid(row=3, column=5)
         ToolTip(clickAreaCombobox,
                 msg=lambda: create_window_as_coordinates(),
@@ -1302,6 +1391,112 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
         clickAreaCombobox.bind('<<ComboboxSelected>>', chooseClickingArea)
 
+        voiceCommandVal = tk.IntVar()
+        voiceCommandCheckbutton = tk.Checkbutton(_setting1_advanced_frame, text='Voice commands',
+                                                 variable=voiceCommandVal,
+                                                 command=lambda: voiceCommandToggled())
+        ToolTip(voiceCommandCheckbutton, msg=f'[Auto-saved] Control {__project__} via voice commands (BETA).',
+                delay=0.25)
+        voiceCommandCheckbutton.select() if STORAGE.Setting.isVoiceCommand else None
+        voiceCommandCheckbutton.grid(row=11, column=3, sticky='w')
+        voiceCommandCheckbutton.bind('<Button-3>', lambda e: voiceCommandToggled(e))
+
+        def voiceCommandToggled(event=False):
+            if not event and not voiceCommandVal.get() or not event and not keyboard.is_pressed('ctrl'):
+                return
+            self.focus()
+
+            voiceCommandsWindow = tk.Toplevel(self)
+            voiceCommandsWindow.title('Voice Commands')
+            Utilities.child_geometry(voiceCommandsWindow, self)
+            voiceCommandsWindow.resizable(False, False)
+            voiceCommandsWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
+            Utilities.set_window_icon(voiceCommandsWindow)
+
+            left_frame = tk.Frame(voiceCommandsWindow)
+            left_frame.grid(row=3, column=3)
+
+            start_header_label = tk.Label(left_frame, text='Start', font=('Calibri', 20, 'bold'))
+            start_header_label.grid(row=0, column=3, columnspan=3)
+
+            laddvoiceCommandFrame = tk.Frame(left_frame)
+            laddvoiceCommandFrame.grid(row=7, column=3, sticky='w')
+
+            def ladd_command():
+                item = addstartVoiceCommandEntry.get().strip().lower()
+                if item and item not in STORAGE.Setting.startVoiceCommands + STORAGE.Setting.stopVoiceCommands:
+                    STORAGE.Setting.startVoiceCommands.append(item)
+                    start_listbox.insert('end', item)
+
+            def ldelete_command():
+                if len(STORAGE.Setting.startVoiceCommands) > 1:
+                    STORAGE.Setting.startVoiceCommands.remove(start_listbox.get(start_listbox.curselection()))
+                    start_listbox.delete(start_listbox.curselection())
+
+            tk.Label(laddvoiceCommandFrame, text='Add:').grid(row=3, column=3)
+            addstartVoiceCommandEntry = tk.Entry(laddvoiceCommandFrame, width=7)
+            addstartVoiceCommandEntry.grid(row=3, column=5, padx=5)
+            ttk.Button(laddvoiceCommandFrame, text='+', width=2, command=ladd_command).grid(row=3, column=7, padx=1)
+            ttk.Button(laddvoiceCommandFrame, text='-', width=2, command=ldelete_command).grid(row=3, column=9)
+
+            start_listbox = tk.Listbox(left_frame)
+            start_listbox.grid(row=4, column=3)
+            lscrollbar = ttk.Scrollbar(left_frame, command=start_listbox.yview)
+            lscrollbar.grid(row=4, column=5, sticky='ns')
+            start_listbox.configure(yscrollcommand=lscrollbar.set)
+
+            for command in STORAGE.Setting.startVoiceCommands:
+                start_listbox.insert(tk.END, command)
+
+            right_frame = tk.Frame(voiceCommandsWindow)
+            right_frame.grid(row=3, column=5)
+
+            stop_header_label = tk.Label(right_frame, text='Stop', font=('Calibri', 20, 'bold'))
+            stop_header_label.grid(row=3, column=3, columnspan=3)
+
+            raddvoiceCommandFrame = tk.Frame(right_frame)
+            raddvoiceCommandFrame.grid(row=7, column=3, sticky='w')
+
+            def radd_command():
+                item = addstopVoiceCommandEntry.get().strip().lower()
+                if item and item not in STORAGE.Setting.stopVoiceCommands + STORAGE.Setting.startVoiceCommands:
+                    STORAGE.Setting.stopVoiceCommands.append(item)
+                    stop_listbox.insert('end', item)
+
+            def rdelete_command():
+                if len(STORAGE.Setting.stopVoiceCommands) > 1:
+                    STORAGE.Setting.stopVoiceCommands.remove(stop_listbox.get(stop_listbox.curselection()))
+                    stop_listbox.delete(stop_listbox.curselection())
+
+            tk.Label(raddvoiceCommandFrame, text='Add:').grid(row=3, column=3)
+            addstopVoiceCommandEntry = tk.Entry(raddvoiceCommandFrame, width=7)
+            addstopVoiceCommandEntry.grid(row=3, column=5, padx=5)
+            ttk.Button(raddvoiceCommandFrame, text='+', width=2,
+                       command=radd_command).grid(row=3, column=7, padx=1)
+            ttk.Button(raddvoiceCommandFrame, text='-', width=2, command=rdelete_command).grid(
+                row=3, column=9)
+
+            stop_listbox = tk.Listbox(right_frame)
+            stop_listbox.grid(row=4, column=3)
+            rscrollbar = ttk.Scrollbar(right_frame, command=stop_listbox.yview)
+            rscrollbar.grid(row=4, column=5, sticky='ns')
+            stop_listbox.configure(yscrollcommand=rscrollbar.set)
+
+            for command in STORAGE.Setting.stopVoiceCommands:
+                stop_listbox.insert(tk.END, command)
+
+            ttk.Separator(voiceCommandsWindow, orient='vertical').grid(row=3, column=4, sticky='ns')
+            voiceCommandsHeaderFrame = tk.Frame(voiceCommandsWindow)
+            voiceCommandsHeaderFrame.grid(row=2, column=1, columnspan=5)
+
+            tk.Label(voiceCommandsHeaderFrame, text='Voice Commands', font=('Calibri', 25, 'bold')).grid(row=3,
+                                                                                                         column=3)
+            tk.Label(voiceCommandsHeaderFrame,
+                     text='NOTE: This feature is still in development.\nBugs and delays might occur.').grid(row=4,
+                                                                                                            column=3,
+                                                                                                            pady=(
+                                                                                                                0, 10))
+
         # SETTING 2: Hotkeys
         setting2_hotkey_frame = ttk.LabelFrame(allSettingsFrame, text='Hotkeys')
         setting2_hotkey_frame.grid(row=3, column=3, sticky='ew', pady=(0, 5))
@@ -1415,11 +1610,11 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
         # # n: Misc 2 - Auto pop up
         autopopupVar = tk.IntVar()
-        checkbox2_failsafe = tk.Checkbutton(_setting10_miscellaneous_frame, text='Auto extra dialog/pop-up',
-                                            variable=autopopupVar)
-        ToolTip(checkbox2_failsafe, msg='Toggle uneccessary pop-up dialogs/messagebox.', delay=0.25)
-        checkbox2_failsafe.select() if STORAGE.Setting.isAutoPopup else None
-        checkbox2_failsafe.grid(row=5, column=3, sticky='w')
+        checkbox2_autopopup = tk.Checkbutton(_setting10_miscellaneous_frame, text='Auto extra dialog/pop-up',
+                                             variable=autopopupVar)
+        ToolTip(checkbox2_autopopup, msg='Toggle uneccessary pop-up dialogs/messagebox.', delay=0.25)
+        checkbox2_autopopup.select() if STORAGE.Setting.isAutoPopup else None
+        checkbox2_autopopup.grid(row=5, column=3, sticky='w')
 
         # # n: Misc 3 - Fail-safe
         failsafeVar = tk.IntVar()
@@ -1433,12 +1628,13 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             STORAGE.Setting.trigger_hotkey = hotkeyDisplayEntry.get().lower().strip()
             print('added', STORAGE.Setting.trigger_hotkey)
 
-            STORAGE.Setting.isTopmost = True if topmostVar.get() else False
-            STORAGE.Setting.isFailsafe = True if failsafeVar.get() else False
-            STORAGE.Setting.isAutoPopup = True if autopopupVar.get() else False
+            STORAGE.Setting.isTopmost = bool(topmostVar.get())
+            STORAGE.Setting.isFailsafe = bool(failsafeVar.get())
+            STORAGE.Setting.isAutoPopup = bool(autopopupVar.get())
             STORAGE.Setting.wheelSize = mouseScrollVar.get() * 100
             STORAGE.Setting.confidence = imageDetectConfidenceVar.get() / 10
             STORAGE.Setting.transparency = transparentVar.get() / 10
+            STORAGE.Setting.isVoiceCommand = bool(voiceCommandVal.get())
 
             STORAGE.Setting.clickArea = [clickAreaCombobox.get().strip() == 'Custom'] + real_pos
 
@@ -1481,7 +1677,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             if not on_quit:
                 for _widget in [randomIntervalCheckbutton, hotkeyDisplayEntry, chooseHotkeysButton, slider1_transparent,
                                 askCustomDialogOpenButton,
-                                checkbox1_topmost, checkbox2_failsafe, checkbox3_failsafe, saveButton]:
+                                checkbox1_topmost, checkbox2_autopopup, checkbox3_failsafe, saveButton]:
                     _widget.configure(state='disabled')
 
             if saving:
@@ -1516,6 +1712,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         extensionsWindow.resizable(False, False)
         extensionsWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
         self.withdraw()
+        Utilities.set_window_icon(extensionsWindow)
 
         keyboard.unregister_all_hotkeys()
         Utilities.add_default_hotkeys()
@@ -1556,6 +1753,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
         def pluginManager(folder_path):
             pluginsManagerWindow = tk.Toplevel(extensionsWindow)
             pluginsManagerWindow.title('Plugins Manager')
+            Utilities.set_window_icon(pluginsManagerWindow)
             Utilities.child_geometry(pluginsManagerWindow, STORAGE.Extension.ON)
             pluginsManagerWindow.grab_set()
 
@@ -1653,6 +1851,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
     def mouseRecorder(self):
         STORAGE.Extension.MouseRecorder.ON = recorderWindow = tk.Toplevel(STORAGE.Extension.ON)
         recorderWindow.title(f'MouseRecorder {STORAGE.Extension.MouseRecorder.version}')
+        Utilities.set_window_icon(recorderWindow)
         Utilities.child_geometry(recorderWindow, STORAGE.Extension.ON)
         recorderWindow.resizable(False, False)
         recorderWindow.attributes('-topmost', STORAGE.Setting.isTopmost)
@@ -1689,6 +1888,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             recorderSettingWindow.title('Recorder Settings')
             Utilities.child_geometry(recorderSettingWindow, recorderWindow)
             recorderSettingWindow.resizable(False, False)
+            Utilities.set_window_icon(recorderSettingWindow)
 
             allRecorderSettingFrame = tk.Frame(recorderSettingWindow)
             allRecorderSettingFrame.grid(row=3, column=3, padx=10)
@@ -1742,10 +1942,18 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
             insertedEventsCheckbutton = tk.Checkbutton(miscellaneousRecordSettingFrame, text='Inserted events',
                                                        variable=insertedEventsVar,
                                                        command=lambda: saveRecordSettings(insertedEventsCheckbutton))
+
             self.after(10,
                        lambda: insertedEventsCheckbutton.select() if STORAGE.Extension.MouseRecorder.isInsertedEvents else None)
             insertedEventsCheckbutton.grid(row=5, column=3, sticky='w')
 
+            clearEventsButton = ttk.Button(miscellaneousRecordSettingFrame,
+                                           text=f'Clear{"" if events else "ed"} events', width=13,
+                                           state='normal' if events else 'disabled', command=lambda: [events.clear(),
+                                                                                                      clearEventsButton.configure(
+                                                                                                          text='Cleared events',
+                                                                                                          state='disabled')])
+            clearEventsButton.grid(row=9, column=3, sticky='w', padx=5, pady=(0, 5))
             #
             ttk.Button(recorderSettingWindow, text='Auto-saved', state='disabled').grid(row=5, column=3, pady=7)
 
@@ -1753,6 +1961,8 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                 recorderSettingWindow.destroy()
                 recorderWindow.deiconify()
                 saveRecordSettings()
+                if not events:
+                    playbackRecordButton.configure(state='disabled')
 
             recorderSettingWindow.protocol('WM_DELETE_WINDOW', closeRecorderSetting)
 
@@ -1869,6 +2079,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
         STORAGE.Extension.CpsCounter.ON = cpsCounterWindow = tk.Toplevel(self)
         cpsCounterWindow.title('CPS Counter')
+        Utilities.set_window_icon(cpsCounterWindow)
         Utilities.child_geometry(cpsCounterWindow, self)
 
         cpsCounterWindow.grid_columnconfigure(3, weight=1)
@@ -1914,6 +2125,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
         askPositionDialog = tk.Toplevel(self)
         askPositionDialog.title('')
+        Utilities.set_window_icon(askPositionDialog)
         Utilities.child_geometry(askPositionDialog, self)
         askPositionDialog.resizable(False, False)
         askPositionDialog.attributes('-topmost', STORAGE.Setting.isTopmost)
@@ -2150,7 +2362,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                 return
             STORAGE.FIXED_POSITIONS = tuple(map(int, positions))
             if self.positionType.get() == 'locate':
-                STORAGE.LOCATE_SCREEN = (True if moveLocateValue.get() else False, locatefile)
+                STORAGE.LOCATE_SCREEN = (bool(moveLocateValue.get()), locatefile)
                 self.customPositionRadiobutton.configure(text=f'Custom (Locate)')
                 self.showInterval.configure(
                     text=f'Interval/l: ~{":".join([i.get().zfill(2) for i in [self.intervalHourCombobox, self.intervalMinuteCombobox, self.intervalSecondCombobox]])}.{self.intervalMillisecondCombobox.get().zfill(3)}')
@@ -2190,7 +2402,7 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
                                 self.customPositionRadiobutton]:
                     _widget.configure(state='readonly' if _widget in [self.clickTypeOptionCombobox,
                                                                       self.mouseButtonOptionCombobox] else 'normal')
-            Utilities.writelog('Custom-position dialog closed. No position was chosen.', ('', '\n', True))
+            Utilities.writelog('Custom-position dialog closed. No position was chosen', ('', '\n', True))
 
         askPositionDialog.protocol('WM_DELETE_WINDOW', on_exit)
 
@@ -2253,9 +2465,20 @@ Time elapsed: {time.perf_counter() - __startFlag__:.1f}s'''), Utilities.writelog
 
 def background_tasks():
     Utilities.writelog('Background tasks started', ('', '\n', True))
+    stoplisten = lambda: None
+    if STORAGE.Setting.isVoiceCommand:
+        stoplisten = Utilities.listen_to_voice(root)
     while True:
         if not STORAGE.RUNNING:
             continue
+        if STORAGE.Garbage.last_isVoiceCommand != STORAGE.Setting.isVoiceCommand:
+            if STORAGE.Setting.isVoiceCommand:
+                stoplisten = Utilities.listen_to_voice(root)
+                print('start listen lol')
+            else:
+                stoplisten()
+                print('stopped listten lol')
+        STORAGE.Garbage.last_isVoiceCommand = STORAGE.Setting.isVoiceCommand
 
         if STORAGE.Garbage.root_geometry is None:
             STORAGE.Garbage.root_geometry = root.geometry()
