@@ -12,7 +12,7 @@
 
 <br>
 
-### Features
+### ✨ Features
 <details>
   <summary>Speed</summary>
   
@@ -90,8 +90,8 @@
   - [ ] Macro
 </details>
 
-### How to download and run the application?
-#### Run through an installer:
+### 🤔 How to download and run the application?
+#### 💾 Run through an installer:
 > 1. Install the installer via the [release page](https://github.com/ItsHungg/JetClicker/releases).
 > 2. After the installer is installed, open it.
 > 3. Choose your preferences and press `Install`.
@@ -99,7 +99,7 @@
 > 5. Open Windows's start menu and run the app.
 > 6. Start using it and enjoy! ❤️
 
-#### Run with a zipped file:
+#### 🗃️ Run with a zipped file:
 * First, you need to have Python installed to run the application. You can download it [here](https://www.python.org/downloads/).<br>
 * Then, you need to install `pip` (Python Package Installer). You can read the tutorial to download `pip` [here](https://pip.pypa.io/en/stable/installation/).<br>
 * After that, you need to install the libraries list at the bottom.<br>
@@ -117,23 +117,27 @@ pip install <library-name>
 
 **Note:** If you spot any error or bug, you should report it [here](https://github.com/ItsHungg/JetClicker/issues) immediately.
 
-### FAQ (Frequently-Asked-Questions)
+### ⁉️ FAQ (Frequently-Asked-Questions)
 #### 1. Is JetClicker safe?
 > Based on the code, I can be confident that JetClicker is safe.
 #### 2. Antivirus software detected JetClicker as a virus.
 > JetClicker uses Inno Setup to create the installer and PyInstaller to create the `.exe` file. They are all open-source.<br>You can check it [here](https://github.com/jrsoftware/issrc) (Inno Setup) and [here](https://github.com/pyinstaller/pyinstaller) (PyInstaller). I am confident that JetClicker is completely safe and free to use.
-#### 3. Which method should I use to install, zipped file or installer (not available yet)?
+#### 3. Which method should I use to install, zipped file or installer?
 > I recommend you use an installer to install JetClicker because it's more convenient and you won't need to install any Python library to use.
 #### 4. Does JetClicker support MacOS or Linux?
 > No. JetClicker only works with Windows. Running JetClicker on another OS might get some feature break.
+<br>
+
+**`Disclaimer:`** JetClicker is a simple auto-clicker application designed for personal use only. It is intended for automating repetitive clicking tasks in applications or games. The user is responsible for ensuring that the use of this software complies with any applicable laws or regulations, and the developer assumes no liability for any misuse of the application.
+
 
 <hr>
 
-## Information
+## ℹ️ Information
 Project name: **JetClicker**<br>
 Last checked: `v0.5.1`<br>
 
-### Libraries
+### 📃 Libraries
 - pip:  `24.0`<br>
 - tkinter: `8.6`
 - Pillow (PIL): `10.0.0`
@@ -142,7 +146,7 @@ Last checked: `v0.5.1`<br>
 - keyboard: `0.13.5`
 - mouse: `0.7.1`
 - speech_recognition: `3.10.0`
-### Packages
+### 📦 Packages
 - pyinstaller: `5.13.0`
 - Inno Setup: `6.2.2`
 
