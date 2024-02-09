@@ -72,7 +72,11 @@
     - [x] Start clicking
     - [x] Stop clicking
     - [ ] Other actions
-  - [x] Support start/stop trigger hotkey
+  - [x] Non-button triggering
+    - [x] Trigger via hotkey
+    - [ ] Trigger via mouse buttons *(in development)*
+    - [ ] Trigger via active windows
+    - [ ] Trigger via mouse on specific area
   - [x] Fail-safe system
   - [x] Extra features
     - [x] Always on top
