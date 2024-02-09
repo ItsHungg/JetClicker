@@ -12,6 +12,80 @@
 
 <br>
 
+### Features
+<details>
+  <summary>Speed</summary>
+  
+  - [x] Normal (>50 CPS)
+  - [x] Fast (>150 CPS)
+  - [x] Very fast (>250 CPS) *depends on your machine*
+  - [ ] Super fast (>500 CPS)
+  - [ ] Ultra fast (>1000 CPS)
+</details>
+<details>
+  <summary>Interval</summary>
+
+  - [x] Custom interval
+  - [x] Random interval
+  - [ ] Multiple custom intervals
+</details>
+<details>
+  <summary>Mouse buttons</summary>
+
+  - [x] 3 mouse buttons
+  - [ ] 5 mouse buttons
+  - [ ] 9 mouse buttons
+</details>
+<details>
+  <summary>Click type</summary>
+
+  - [x] Single click
+  - [x] Double click
+  - [x] Triple-click
+  - [x] Scroll
+</details>
+<details>
+  <summary>Click repeats</summary>
+
+  - [x] Custom limited repeats
+  - [x] Unlimited repeats
+</details>
+<details>
+  <summary>Mouse position</summary>
+
+  - [x] Current mouse position
+  - [x] Custom mouse position
+  - [x] Random mouse position
+  - [x] Move mouse to image on detection
+  - [ ] Multiple click points
+</details>
+<details>
+  <summary>Others</summary>
+    <details>
+    <summary><i>Advanced settings</i></summary>
+
+  - [x] Customizable wheel size when auto-scrolling
+  - [x] Customizable accuracy of the image detection system
+  - [x] Customizable click area range
+    - [x] Preview supported
+  - [x] Voice commands
+    - [x] Start clicking
+    - [x] Stop clicking
+    - [ ] Other actions
+  - [x] Support start/stop trigger hotkey
+  - [x] Fail-safe system
+  - [x] Extra features
+    - [x] Always on top
+    - [x] Extra message dialogs
+  - [ ] Specific clicking windows *(in development)*
+  </details>
+
+  - [x] Included with built-in extensions (mouse recorder, cps calculator)
+  - [x] Customizable plugins
+  - [ ] Export/Load mouse positions to/from files *(in development)*
+  - [ ] Macro
+</details>
+
 ### How to download and run the application?
 #### Run through an installer:
 > 1. Install the installer via the [release page](https://github.com/ItsHungg/JetClicker/releases).
