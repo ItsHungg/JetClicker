@@ -19,7 +19,7 @@
   - [x] Normal (>50 CPS)
   - [x] Fast (>150 CPS)
   - [x] Very fast (>250 CPS) *depends on your machine*
-  - [ ] Super fast (>500 CPS)
+  - [x] Super fast (>500 CPS) *on [JetClicker Lite](https://github.com/ItsHungg/JetClicker-lite)*
   - [ ] Ultra fast (>1000 CPS)
 </details>
 <details>
